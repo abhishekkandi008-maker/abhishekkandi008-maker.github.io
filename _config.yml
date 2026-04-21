@@ -9,22 +9,9 @@ theme: minima
 minima:
   skin: dark
 
-  header_pages:
-    - about.md
+header_pages:
+  - about.md
 
-    plugins:
-      - jekyll-feed
-        - jekyll-seo-tag
-
-        defaults:
-          - scope:
-                path: ""
-                      type: "posts"
-                          values:
-                                layout: "post"
-                                      author: "Abhishek Kandi"
-
-                                      markdown: kramdown
-                                      highlighter: rouge
-                                      permalink: /:year/:month/:day/:title/
-                                      
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
