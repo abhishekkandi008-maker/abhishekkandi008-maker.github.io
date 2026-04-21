@@ -5,6 +5,7 @@ url: "https://abhishekkandi008-maker.github.io"
 baseurl: ""
 
 theme: minima
+future: true
 
 minima:
   skin: dark
