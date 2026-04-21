@@ -1,0 +1,30 @@
+title: "Abhishek Kandi - Security Research"
+description: "Vulnerability Disclosures, Exploit Analysis & Agentic AI Security Research"
+author: "Abhishek Kandi"
+url: "https://abhishekkandi008-maker.github.io"
+baseurl: ""
+
+theme: minima
+
+minima:
+  skin: dark
+
+  header_pages:
+    - about.md
+
+    plugins:
+      - jekyll-feed
+        - jekyll-seo-tag
+
+        defaults:
+          - scope:
+                path: ""
+                      type: "posts"
+                          values:
+                                layout: "post"
+                                      author: "Abhishek Kandi"
+
+                                      markdown: kramdown
+                                      highlighter: rouge
+                                      permalink: /:year/:month/:day/:title/
+                                      
