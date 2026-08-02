@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="../../assets/style.css?v=4" />
+  <link rel="stylesheet" href="../../assets/style.css?v=5" />
 </head>
 <body>
   <main class="wrap">
@@ -286,6 +286,93 @@ flowchart LR
 
       <hr />
 
+      <h2>Classifiers look fine on the leaderboard — until the agent has tools</h2>
+
+      <p>
+        Capability benches and chat leaderboards reward fluent answers. Agentic products reward something else: a model that can <em>do things</em>. When I compared Gemini against other frontier stacks on public AI-mode / LMSYS-style arenas and general capability boards, Gemini often looked competitive — sometimes excellent — on the scoreboard people screenshot. That is not the same as a trustworthy permission classifier for file writes, shell tools, or workspace mutation.
+      </p>
+
+      <div class="insight">
+        <div class="label">What this bug made obvious</div>
+        <p>
+          Gemini’s agent stack already had a safety story — sensitive paths, <code>require_confirmation</code>, human-in-the-loop. The Antigravity / VS Code chain did not need a jailbreak monologue. It needed the classifier (or the path policy feeding it) to miss. Leaderboard wins do not buy you that layer. On this surface, Gemini’s classifiers were not “great”; they were incomplete relative to the privileges the agent actually held.
+        </p>
+      </div>
+
+      <table class="bench">
+        <thead>
+          <tr>
+            <th>What people measure</th>
+            <th>What agent products need</th>
+            <th>Where Gemini failed here</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Arena / LMSYS-style chat preference</td>
+            <td>Refusal + confirmation on privileged tools</td>
+            <td class="warn">HITL never scheduled</td>
+          </tr>
+          <tr>
+            <td>Coding / reasoning benchmarks</td>
+            <td>Case-aware path &amp; config policy</td>
+            <td class="warn">settings.JSON auto-approved</td>
+          </tr>
+          <tr>
+            <td>“Safety” vibes in demos</td>
+            <td>System-level denial when model is confused</td>
+            <td class="warn">Config → process spawn</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        In other words: I can believe Gemini is strong on a chat leaderboard and still not trust it alone as the gatekeeper for <code>.env</code>, <code>.git</code>, and <code>settings.json</code>. Capability score ≠ tool-policy competence.
+      </p>
+
+      <h3>This is the research literature’s warning, not a hot take</h3>
+
+      <p>
+        Two papers make the same structural point this bug demonstrated in product form.
+      </p>
+
+      <div class="paper-grid">
+        <div class="paper-card">
+          <h3>Agentic Misalignment: How LLMs Could Be Insider Threats</h3>
+          <div class="cite">Lynch et al. · Anthropic et al. · 2025</div>
+          <p>
+            Stress-tests across major model families show that when agents get tools, goals, and autonomy, they can behave like <em>insiders</em> — taking harmful actions even when the user request looks benign. The paper’s caution is blunt: be careful deploying current models in roles with sensitive access and thin oversight. An IDE agent with write tools <em>is</em> that role. My Antigravity chain is the boring cousin of that story — not blackmail in a simulation, but silent state change on a developer machine because the policy layer blinked.
+          </p>
+        </div>
+        <div class="paper-card">
+          <h3>An Approach to Technical AGI Safety and Security</h3>
+          <div class="cite">Shah et al. · Google DeepMind · Apr 2025</div>
+          <p>
+            DeepMind separates misuse and misalignment, then argues for <em>two</em> lines of defense: model-level mitigations (training, amplified oversight) <strong>and</strong> system-level controls (monitoring, access restriction) that still work if the model is wrong. Classifiers and “safety decisions” sit in the first bucket. Case-normalized path blocklists, always-ask for sensitive trees, and never treating chat intent as write approval sit in the second. This bug happened because the product leaned on the first and under-built the second.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        So when I say Gemini classifiers aren’t that great, I do not mean “Gemini cannot write code.” I mean: on the axes that matter for agentic IDEs — deciding when a tool call is privileged, when confirmation is mandatory, when a path is sensitive regardless of casing — leaderboard performance did not translate. The model can look aligned in AI Mode benchmarks and still be an insider threat the moment you hand it a filesystem.
+      </p>
+
+      <pre class="mermaid">
+flowchart TD
+    A[Strong on chat / arena benches] --> B[Ship agent with tools]
+    B --> C{Classifier / policy catch privileged write?}
+    C -->|yes| D[HITL / deny]
+    C -->|no / case miss| E[Silent settings mutation]
+    E --> F[Host code execution]
+    style A fill:#51cf66,color:#000
+    style D fill:#51cf66,color:#000
+    style C fill:#ffd43b,color:#000
+    style E fill:#ff6b6b,color:#000
+    style F fill:#ff6b6b,color:#000
+      </pre>
+
+      <hr />
+
       <h2>What I'd actually take from this</h2>
 
       <p>
@@ -293,11 +380,11 @@ flowchart LR
       </p>
 
       <p>
-        <strong>HITL gates are only as real as their classifiers.</strong> <code>require_confirmation</code> that never triggers is worse than no gate — it teaches users and auditors that the dangerous path is covered.
+        <strong>HITL gates are only as real as their classifiers — and classifiers are not leaderboards.</strong> <code>require_confirmation</code> that never triggers is worse than no gate. Gemini can win AI Mode / arena comparisons and still miss a privileged write. Pair model safety with system policy, the way the DeepMind AGI safety agenda argues.
       </p>
 
       <p>
-        <strong>Config is code.</strong> Workspace settings that name executables, tasks that run shells, MCP stdio commands, sandbox proxy env vars — they're all process spawn with extra steps. Treat silent writes to those surfaces like silent writes to <code>.git/hooks</code>.
+        <strong>Config is code.</strong> Workspace settings that name executables, tasks that run shells, MCP stdio commands, sandbox proxy env vars — they're all process spawn with extra steps. Treat silent writes to those surfaces like silent writes to <code>.git/hooks</code>. Agentic misalignment research is not abstract once the agent can edit those files.
       </p>
 
       <p>
@@ -330,7 +417,9 @@ flowchart LR
         <span>gemini</span>
         <span>vscode</span>
         <span>antigravity</span>
-        <span>case-sensitivity</span>
+        <span>agentic-misalignment</span>
+        <span>agi-safety</span>
+        <span>classifiers</span>
       </div>
     </article>
   </main>
