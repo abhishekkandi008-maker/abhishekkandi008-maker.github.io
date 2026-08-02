@@ -104,22 +104,29 @@
       <div class="diagram">
         <pre class="mermaid">
 flowchart TD
-    A[User / injected context<br/>asks Gemini agent to help] --> B{Agent proposes write<br/>to .vscode settings}
-    B --> C{"Path casing match<br/>ALWAYS_CHECKED pattern?"}
-    C -->|"settings.json"| D[HITL: require confirmation]
-    C -->|"settings.JSON / .VSCODE / ..."| E[No match → auto-approve]
-    D --> F[User can refuse]
-    E --> G[Write succeeds on Windows]
-    G --> H[Workspace settings poisoned]
-    style E fill:#f85149,color:#000
-    style G fill:#f85149,color:#000
-    style H fill:#f85149,color:#000
-    style D fill:#3fb950,color:#000
+    A["Injected prompt / poisoned repo<br/>asks Antigravity agent to help"] --> B["Agent proposes write<br/>to .vscode settings"]
+    B --> C{"Sensitive-file check<br/>case-sensitive glob match?"}
+
+    C -->|"settings.json<br/>permission required"| D["HITL: ask user"]
+    C -->|"settings.JSON / .VSCODE<br/>pattern miss"| E["Treated as normal file<br/>auto-approved"]
+
+    D --> F["User can refuse"]
+    E --> G["Windows writes the real<br/>.vscode/settings.json"]
+    G --> H["Workspace state poisoned<br/>executablePath = malware"]
+    H --> I["Save / validate .php<br/>→ code execution"]
+
+    style C fill:#21262d,stroke:#58a6ff,color:#f0f6fc
+    style D fill:#238636,stroke:#3fb950,color:#fff
+    style F fill:#238636,stroke:#3fb950,color:#fff
+    style E fill:#da3633,stroke:#f85149,color:#fff
+    style G fill:#da3633,stroke:#f85149,color:#fff
+    style H fill:#da3633,stroke:#f85149,color:#fff
+    style I fill:#9e6a03,stroke:#d29922,color:#fff
         </pre>
       </div>
 
       <p>
-        That single boolean — matched or not — is the whole vulnerability. Everything after it is just picking a settings key that turns configuration into execution.
+        That single boolean — matched or not — is the whole vulnerability. Sensitive special files like <code>settings.json</code> are supposed to require permission. Miss the pattern, skip the permission, own the machine’s config.
       </p>
 
       <hr />
@@ -145,35 +152,26 @@ flowchart TD
       <div class="diagram">
         <pre class="mermaid">
 sequenceDiagram
-    participant Attacker
-    participant Repo as Shared / poisoned context
-    participant Agent as Gemini VS Code Agent
-    participant Gate as Sensitive-file check
-    participant FS as Windows filesystem
-    participant Ext as PHP validator / extension
+    autonumber
+    participant A as Attacker
+    participant R as Poisoned repo / prompt
+    participant G as Gemini Antigravity
+    participant P as Permission gate<br/>(sensitive files)
+    participant W as Windows FS
+    participant X as PHP / IDE extension
 
-    Attacker->>Repo: Hide instructions / lure<br/>("follow my codebase…")
-    Repo->>Agent: User opens workspace + chats
-    Agent->>Gate: writeFile(.vscode/settings.JSON)
-    Note over Gate: Case-sensitive glob miss
-    Gate-->>Agent: auto-approve (no HITL)
-    Agent->>FS: Write settings with<br/>php.validate.executablePath=calc.exe
-    Note over FS: settings.JSON ≡ settings.json
-    Ext->>FS: Read executablePath
-    Ext->>Ext: spawn(malicious path)
-    Note over Ext: 💥 code execution as the user
+    A->>R: Plant lure ("follow my codebase…")
+    R->>G: Developer opens workspace + chats
+    G->>P: writeFile(.vscode/settings.JSON)
+    Note over P: settings.json needs permission<br/>settings.JSON misses case-sensitive check
+    P-->>G: Auto-approve (HITL never shown)
+    G->>W: Persist php.validate.executablePath
+    Note over W: settings.JSON ≡ settings.json
+    X->>W: Read executablePath on validate/save
+    X->>X: spawn(configured binary)
+    Note over X: Full code execution as the user
         </pre>
       </div>
-
-      <h3>Reproduction shape</h3>
-
-      <ol>
-        <li>Open a workspace in a Gemini-backed VS Code / Antigravity agent session on Windows.</li>
-        <li>Steer the agent (direct prompt or injected repo context) to create <code>.vscode/settings.JSON</code> with a malicious <code>php.validate.executablePath</code> (or an equivalent executable-path setting).</li>
-        <li>Observe that the write is auto-approved — no confirmation dialog.</li>
-        <li>Trigger PHP validation (e.g. save a <code>.php</code> file).</li>
-        <li>Watch the configured binary execute.</li>
-      </ol>
 
       <div class="callout">
         <div class="label">Important nuance</div>
@@ -259,16 +257,19 @@ path.join(mockCwd, '.vscode::$DATA', 'settings.json'),</code></pre>
       <div class="diagram">
         <pre class="mermaid">
 flowchart LR
-    A[Raw path from tool args] --> B[Resolve / canonicalize]
-    B --> C[Split segments]
-    C --> D[trim + strip ADS + toLowerCase]
-    D --> E{Segment policy}
-    E -->|.git / .env / node_modules| F[DENY]
-    E -->|.vscode| G[ASK_USER]
-    E -->|other in-workspace| H[ALLOW]
-    style F fill:#f85149,color:#000
-    style G fill:#d29922,color:#000
-    style H fill:#3fb950,color:#000
+    A["Tool path arg"] --> B["Resolve / canonicalize"]
+    B --> C["Split path segments"]
+    C --> D["Normalize:<br/>trim · strip ADS · toLowerCase"]
+    D --> E{"Sensitive segment?"}
+    E -->|".git / .env / node_modules"| F["DENY"]
+    E -->|".vscode / settings"| G["ASK_USER<br/>permission required"]
+    E -->|"other in-workspace"| H["ALLOW"]
+
+    style A fill:#21262d,stroke:#8b949e,color:#f0f6fc
+    style D fill:#21262d,stroke:#58a6ff,color:#f0f6fc
+    style F fill:#da3633,stroke:#f85149,color:#fff
+    style G fill:#9e6a03,stroke:#d29922,color:#fff
+    style H fill:#238636,stroke:#3fb950,color:#fff
         </pre>
       </div>
 

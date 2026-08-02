@@ -267,10 +267,12 @@ pre code {
 }
 
 .diagram {
-  background: var(--bg-elevated);
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 0%, rgba(88, 166, 255, 0.08), transparent),
+    var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1rem;
+  padding: 1.35rem 1rem 1.1rem;
   margin: 0 0 1.5rem;
   overflow-x: auto;
 }
@@ -278,6 +280,7 @@ pre code {
 .diagram .mermaid {
   display: flex;
   justify-content: center;
+  min-height: 180px;
 }
 
 .callout {
