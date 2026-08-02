@@ -314,8 +314,9 @@ pre code {
   position: relative;
   max-height: var(--diagram-collapsed);
   overflow: hidden;
-  padding: 1.1rem 0.75rem 0.85rem;
+  padding: 1.25rem 0.9rem 2.4rem;
   cursor: zoom-in;
+  background: #0b0f14;
 }
 
 .diagram__stage:focus-visible {
@@ -324,7 +325,7 @@ pre code {
 }
 
 .diagram__stage::after {
-  content: "Click or Expand";
+  content: "Click or Expand · zoom in dialog";
   position: absolute;
   left: 50%;
   bottom: 0.85rem;
@@ -334,12 +335,13 @@ pre code {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--heading);
-  background: rgba(13, 17, 23, 0.82);
+  background: rgba(13, 17, 23, 0.88);
   border: 1px solid rgba(88, 166, 255, 0.35);
   border-radius: 999px;
   padding: 0.35rem 0.75rem;
   pointer-events: none;
   z-index: 2;
+  white-space: nowrap;
 }
 
 .diagram__stage::before {
@@ -348,16 +350,17 @@ pre code {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 88px;
+  height: 96px;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(22, 27, 34, 0.94) 62%, var(--bg-elevated));
+  background: linear-gradient(180deg, transparent, rgba(11, 15, 20, 0.96) 58%, #0b0f14);
   z-index: 1;
 }
 
 .diagram .mermaid {
   display: flex;
   justify-content: center;
-  min-height: 160px;
+  align-items: flex-start;
+  min-height: 180px;
   margin: 0;
   background: transparent;
   border: none;
@@ -367,7 +370,8 @@ pre code {
 
 .diagram .mermaid svg {
   max-width: 100%;
-  height: auto;
+  height: auto !important;
+  min-width: min(100%, 520px);
 }
 
 /* Dialog lightbox */
@@ -377,8 +381,8 @@ pre code {
   z-index: 1000;
   display: grid;
   place-items: center;
-  padding: clamp(0.75rem, 3vw, 1.5rem);
-  background: rgba(1, 4, 9, 0.78);
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  background: rgba(1, 4, 9, 0.82);
   backdrop-filter: blur(14px) saturate(1.2);
   opacity: 0;
   visibility: hidden;
@@ -391,15 +395,15 @@ pre code {
 }
 
 .diagram-lightbox__panel {
-  width: min(1120px, 100%);
-  max-height: min(92vh, 960px);
+  width: min(1240px, 100%);
+  height: min(94vh, 980px);
   display: flex;
   flex-direction: column;
   border: 1px solid rgba(88, 166, 255, 0.4);
   border-radius: 16px;
   background:
     radial-gradient(ellipse 70% 45% at 50% 0%, rgba(88, 166, 255, 0.14), transparent 55%),
-    #0f141b;
+    #0b0f14;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.03) inset,
     0 28px 90px rgba(0, 0, 0, 0.6);
@@ -419,9 +423,10 @@ pre code {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.95rem 1.1rem;
+  padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--border);
-  background: rgba(13, 17, 23, 0.65);
+  background: rgba(13, 17, 23, 0.78);
+  flex-shrink: 0;
 }
 
 .diagram-lightbox__title {
@@ -429,6 +434,22 @@ pre code {
   font-size: 0.82rem;
   color: var(--heading);
   letter-spacing: 0.03em;
+  min-width: 0;
+}
+
+.diagram-lightbox__zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.diagram-lightbox__zoom-label {
+  min-width: 3.2rem;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent);
 }
 
 .diagram-lightbox__close {
@@ -445,6 +466,7 @@ pre code {
   display: grid;
   place-items: center;
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  margin-left: 0.25rem;
 }
 
 .diagram-lightbox__close:hover {
@@ -454,20 +476,52 @@ pre code {
 }
 
 .diagram-lightbox__body {
-  overflow: auto;
-  padding: clamp(1rem, 3vw, 1.75rem);
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  background: #070a0e;
+}
+
+.diagram-lightbox__viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  touch-action: none;
+}
+
+.diagram-lightbox__viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.diagram-lightbox__canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+  will-change: transform;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 280px;
-  background:
-    radial-gradient(circle at 50% 30%, rgba(88, 166, 255, 0.05), transparent 45%);
 }
 
-.diagram-lightbox__body .mermaid,
-.diagram-lightbox__body svg {
-  max-width: 100%;
+.diagram-lightbox__canvas .mermaid {
+  display: block;
+  margin: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.diagram-lightbox__canvas svg {
+  display: block;
   height: auto;
+  max-width: none !important;
+  background: #0b0f14;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(48, 54, 61, 0.8);
 }
 
 .diagram-lightbox__foot {
@@ -477,7 +531,8 @@ pre code {
   gap: 1rem;
   padding: 0.8rem 1.1rem;
   border-top: 1px solid var(--border);
-  background: rgba(13, 17, 23, 0.65);
+  background: rgba(13, 17, 23, 0.78);
+  flex-shrink: 0;
 }
 
 .diagram-lightbox__hint {
@@ -489,6 +544,22 @@ pre code {
 .diagram-lightbox__done {
   border-color: rgba(88, 166, 255, 0.45);
   color: #79b8ff;
+}
+
+@media (max-width: 720px) {
+  .diagram-lightbox__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .diagram-lightbox__zoom {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .diagram-lightbox__hint {
+    display: none;
+  }
 }
 
 .callout {

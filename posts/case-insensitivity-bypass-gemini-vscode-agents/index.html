@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="../../assets/style.css" />
+  <link rel="stylesheet" href="../../assets/style.css?v=2" />
 </head>
 <body>
   <main class="wrap">
@@ -362,19 +362,35 @@ flowchart LR
       startOnLoad: false,
       theme: "dark",
       securityLevel: "loose",
+      flowchart: { htmlLabels: true, curve: "basis", padding: 16, nodeSpacing: 40, rankSpacing: 50 },
+      sequence: { mirrorActors: false, messageMargin: 40, actorMargin: 50, boxMargin: 12 },
       themeVariables: {
         primaryColor: "#161b22",
-        primaryTextColor: "#c9d1d9",
+        primaryTextColor: "#f0f6fc",
         primaryBorderColor: "#58a6ff",
         lineColor: "#8b949e",
         secondaryColor: "#21262d",
         tertiaryColor: "#0d1117",
         fontFamily: "IBM Plex Sans, sans-serif",
+        fontSize: "16px",
+        textColor: "#f0f6fc",
+        mainBkg: "#161b22",
+        nodeBorder: "#58a6ff",
+        clusterBkg: "#0d1117",
+        titleColor: "#f0f6fc",
+        actorTextColor: "#f0f6fc",
+        actorBkg: "#161b22",
+        actorBorder: "#58a6ff",
+        signalColor: "#c9d1d9",
+        labelBoxBkgColor: "#161b22",
+        labelTextColor: "#f0f6fc",
+        noteBkgColor: "#21262d",
+        noteTextColor: "#f0f6fc",
       },
     });
     await mermaid.run({ querySelector: ".mermaid" });
     const enhance = document.createElement("script");
-    enhance.src = "../../assets/diagrams.js";
+    enhance.src = "../../assets/diagrams.js?v=2";
     document.body.appendChild(enhance);
   </script>
 </body>
