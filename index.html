@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Abhishek Kandi — Security Research</title>
+  <meta name="description" content="Security research notes on AI agents, prompt injection, and case-insensitivity bypasses in Gemini-powered developer tooling." />
+  <meta property="og:title" content="Abhishek Kandi — Security Research" />
+  <meta property="og:description" content="Writeups on AI agent vulnerabilities, Google VRP findings, and Gemini IDE security." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <a class="brand" href="./">abhishekkandi</a>
+      <nav class="nav">
+        <a href="./">Posts</a>
+        <a href="https://github.com/abhishekkandi">GitHub</a>
+        <a href="https://bughunters.google.com">Bug Hunters</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Security Research</h1>
+      <p class="lede">Writeups on AI agents, human-in-the-loop bypasses, and the quiet places where filesystem semantics disagree with security controls.</p>
+    </section>
+
+    <section class="card-list">
+      <a class="post-card" href="posts/case-insensitivity-bypass-gemini-vscode-agents/">
+        <div class="date">02 Aug, 2026</div>
+        <h2>Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents</h2>
+        <p>How a case-sensitive sensitive-file check on a case-insensitive filesystem let an injected prompt silently rewrite VS Code settings and achieve code execution — rewarded by Google AI VRP.</p>
+      </a>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>Google AI VRP · Responsible disclosure</span>
+    </div>
+  </footer>
+</body>
+</html>

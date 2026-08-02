@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents | abhishekkandi</title>
+  <meta name="description" content="Case-insensitivity bypass of Gemini AI's sensitive-file HITL check on Windows, escalating from prompt injection to local code execution via VS Code settings. Google AI VRP, $1337." />
+  <meta name="author" content="Abhishek Kandi" />
+  <meta property="og:title" content="Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents" />
+  <meta property="og:description" content="A case-sensitive security control on a case-insensitive filesystem. Prompt injection → silent settings write → code execution. Google AI VRP." />
+  <meta property="og:type" content="article" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        primaryColor: "#161b22",
+        primaryTextColor: "#c9d1d9",
+        primaryBorderColor: "#58a6ff",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
+        fontFamily: "IBM Plex Sans, sans-serif",
+      },
+    });
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <a class="brand" href="../../">abhishekkandi</a>
+      <nav class="nav">
+        <a href="../../">Posts</a>
+        <a href="https://github.com/abhishekkandi">GitHub</a>
+        <a href="https://bughunters.google.com">Bug Hunters</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <article class="post hero">
+      <a class="back" href="../../">← Posts</a>
+      <h1>Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents</h1>
+      <div class="meta">
+        <span>02 Aug, 2026</span>
+        <span>·</span>
+        <span class="tag">Google AI VRP · $1337</span>
+        <span class="tag">RCE</span>
+        <span class="tag">Prompt Injection</span>
+      </div>
+
+      <p class="lede">
+        Here's a fun genre of AI agent bug: the one where the security control is correct on paper, wrong on Windows, and the model never needs to “jailbreak” anything — it just writes a file with the wrong casing.
+      </p>
+
+      <p>
+        In November 2025 I reported a vulnerability in Google's Gemini-powered coding agents (VS Code / IDE companion flows, later reproduced in <a href="https://antigravity.google">Google Antigravity</a>) to the Google AI Vulnerability Reward Program. The panel eventually rewarded it under “Other Exploitable Client-Side Issues.” The interesting part wasn't the dollar amount. It was how thin the gap was between “we require confirmation for <code>.vscode/*.json</code>” and “calc.exe just opened.”
+      </p>
+
+      <p>
+        The chain is short enough to say in one breath: <strong>prompt injection → case-insensitive path bypass of a HITL gate → silent workspace settings write → extension-triggered code execution</strong>.
+      </p>
+
+      <hr />
+
+      <h2>The setup: what “sensitive file” means to an agent</h2>
+
+      <p>
+        Coding agents that can edit your workspace need a human-in-the-loop for certain files. Not every write should be auto-approved. In particular, anything under <code>.vscode/</code> can change how the editor behaves — tasks, launch configs, language server paths, validation hooks. Those aren't “just another source file.” They're capability.
+      </p>
+
+      <p>
+        Gemini's defense was a sensitive-file check, conceptually:
+      </p>
+
+      <pre><code>const ALWAYS_CHECKED_EDIT_PATTERNS: Readonly&lt;Record&lt;string, boolean&gt;&gt; = {
+  '**/.vscode/*.json': false,  // false → require manual approval
+};</code></pre>
+
+      <p>
+        If a proposed edit matched the glob, the agent was supposed to surface a confirmation. Edits that didn't match any sensitive pattern could be auto-approved. Sensible. On macOS and Linux — where the filesystem is (usually) case-sensitive — it even worked the way the author intended.
+      </p>
+
+      <p>
+        On Windows, the filesystem does not care about your casing. <code>settings.json</code> and <code>settings.JSON</code> are the same inode. The glob matcher did care.
+      </p>
+
+      <div class="callout danger">
+        <div class="label">The mismatch</div>
+        <p style="margin:0">
+          Security control: case-sensitive string / glob match.<br />
+          Operating system: case-insensitive path resolution.<br />
+          Attacker: pick a casing the checker doesn't recognize; write the file the OS still treats as the real one.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>The bypass: <code>settings.JSON</code> is not <code>settings.json</code> (to the checker)</h2>
+
+      <p>
+        Demonstration was straightforward. In the Gemini chat surface for a VS Code agent workflow, an injected / steered prompt could instruct the model to create or edit a file named with alternate casing — for example <code>.vscode/settings.JSON</code> instead of <code>.vscode/settings.json</code>.
+      </p>
+
+      <p>
+        The sensitive-file gate evaluated the path as a string against a case-sensitive pattern. Mismatch → “not sensitive” → auto-approve. The write landed on disk. Windows folded the name. The real workspace settings were now attacker-controlled, and no human had clicked Confirm.
+      </p>
+
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A[User / injected context<br/>asks Gemini agent to help] --> B{Agent proposes write<br/>to .vscode settings}
+    B --> C{"Path casing match<br/>ALWAYS_CHECKED pattern?"}
+    C -->|"settings.json"| D[HITL: require confirmation]
+    C -->|"settings.JSON / .VSCODE / ..."| E[No match → auto-approve]
+    D --> F[User can refuse]
+    E --> G[Write succeeds on Windows]
+    G --> H[Workspace settings poisoned]
+    style E fill:#f85149,color:#000
+    style G fill:#f85149,color:#000
+    style H fill:#f85149,color:#000
+    style D fill:#3fb950,color:#000
+        </pre>
+      </div>
+
+      <p>
+        That single boolean — matched or not — is the whole vulnerability. Everything after it is just picking a settings key that turns configuration into execution.
+      </p>
+
+      <hr />
+
+      <h2>From a JSON key to code on the host</h2>
+
+      <p>
+        Prompt injection against agents is rarely “make the model say something naughty.” The useful goal is <em>privilege escalation past human controls</em>. Here the privilege was “write workspace config without asking,” and the sink was a well-known VS Code / extension pattern: executable paths in settings.
+      </p>
+
+      <p>
+        The PoC targeted:
+      </p>
+
+      <pre><code>{
+  "php.validate.executablePath": "C:\\windows\\system32\\calc.exe"
+}</code></pre>
+
+      <p>
+        Once that value sat in the (bypassed) settings file, a normal developer action — opening or saving a PHP file that triggers validation — caused the PHP language tooling to spawn whatever path was configured. Calculator popping is the classic “I control the process image” demo. In a real attack that path is malware, a reverse shell, or a loader that never shows a window.
+      </p>
+
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+    participant Attacker
+    participant Repo as Shared / poisoned context
+    participant Agent as Gemini VS Code Agent
+    participant Gate as Sensitive-file check
+    participant FS as Windows filesystem
+    participant Ext as PHP validator / extension
+
+    Attacker->>Repo: Hide instructions / lure<br/>("follow my codebase…")
+    Repo->>Agent: User opens workspace + chats
+    Agent->>Gate: writeFile(.vscode/settings.JSON)
+    Note over Gate: Case-sensitive glob miss
+    Gate-->>Agent: auto-approve (no HITL)
+    Agent->>FS: Write settings with<br/>php.validate.executablePath=calc.exe
+    Note over FS: settings.JSON ≡ settings.json
+    Ext->>FS: Read executablePath
+    Ext->>Ext: spawn(malicious path)
+    Note over Ext: 💥 code execution as the user
+        </pre>
+      </div>
+
+      <h3>Reproduction shape</h3>
+
+      <ol>
+        <li>Open a workspace in a Gemini-backed VS Code / Antigravity agent session on Windows.</li>
+        <li>Steer the agent (direct prompt or injected repo context) to create <code>.vscode/settings.JSON</code> with a malicious <code>php.validate.executablePath</code> (or an equivalent executable-path setting).</li>
+        <li>Observe that the write is auto-approved — no confirmation dialog.</li>
+        <li>Trigger PHP validation (e.g. save a <code>.php</code> file).</li>
+        <li>Watch the configured binary execute.</li>
+      </ol>
+
+      <div class="callout">
+        <div class="label">Important nuance</div>
+        <p style="margin:0">
+          This is a <em>local</em> chain with user interaction (the developer uses the agent / opens the workspace). The severity comes from silent bypass of the control that was supposed to make that interaction safe — not from unauthenticated remote entry. Shared team repos and “please follow my codebase” social patterns are how it spreads between machines.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Why the model didn't need to be “rogue”</h2>
+
+      <p>
+        Google's agent safety docs talk about <code>safety_decision: require_confirmation</code> for risky computer-use style actions — a HITL brake when the model proposes something dangerous. In this exploit path, that brake never engaged for the interesting action, because the <em>policy layer that classifies the file as sensitive</em> never fired.
+      </p>
+
+      <p>
+        The model wasn't bypassing a confirmation UI with clever wording. The confirmation UI was never scheduled. That's a different bug class than classic jailbreaks: it's policy/implementation skew, not persuasion.
+      </p>
+
+      <blockquote>
+        You don't need the model to defeat the safety system if the safety system already decided this path wasn't worth checking.
+      </blockquote>
+
+      <hr />
+
+      <h2>Same bug, wider surface: Antigravity and path blocklists</h2>
+
+      <p>
+        After the initial VS Code / Gemini agent report, I reproduced the same case-folding idea against <strong>Google Antigravity</strong> — Google's agent-first IDE surface — with a separate PoC video for the VRP thread. Shared agent cores share failure modes.
+      </p>
+
+      <p>
+        Digging further into Gemini CLI / core path validation later made the pattern look even more general. Workspace containment checks of the form “is this path under the workspace root?” answer a different question from “is this a sensitive path we must never silently mutate?”
+      </p>
+
+      <pre><code>// Conceptual shape — containment ≠ policy
+private isPathWithinRoot(pathToCheck: string, rootDirectory: string): boolean {
+  const relative = path.relative(rootDirectory, pathToCheck);
+  return (
+    !relative.startsWith(`..${path.sep}`) &&
+    relative !== '..' &&
+    !path.isAbsolute(relative)
+  );
+}</code></pre>
+
+      <p>
+        Containment alone happily allows <code>.GIT/config</code> or oddly cased <code>.vscode</code> segments on Windows, because <code>path.relative</code> and the OS agree the path is “inside,” while a naive string blocklist for <code>.git</code> may not. Sensitive directories need <strong>case-insensitive segment checks</strong> (and, on Windows, awareness of trailing-dot / ADS weirdness) — not just glob equality on the path the model typed.
+      </p>
+
+      <hr />
+
+      <h2>Reading the fix forwards</h2>
+
+      <p>
+        The cleanest way to understand what was wrong is to look at what defensive code looks like afterward. In current Gemini CLI core safety, path segments are normalized before policy decisions:
+      </p>
+
+      <pre><code>const clean = trimTrailingSpacesAndDots(
+  segment.split(':')[0],
+).toLowerCase();
+
+if (clean === '.git' || clean === '.env' || clean === 'node_modules') {
+  hasBlockedSegment = true;
+}
+if (clean === '.vscode') {
+  isVscodePath = true;  // → ASK_USER
+}</code></pre>
+
+      <p>
+        And the regression suite now explicitly includes the bypass cases that used to work:
+      </p>
+
+      <pre><code>path.join(mockCwd, '.vscode', 'settings.JSON'),
+path.join(mockCwd, '.VSCODE', 'settings.json'),
+path.join(mockCwd, '.vscode ', 'settings.json'),
+path.join(mockCwd, '.vscode::$DATA', 'settings.json'),</code></pre>
+
+      <p>
+        Those tests expect <code>ASK_USER</code> for in-workspace <code>.vscode</code> mutations and hard denials for blocked trees like <code>.git</code> / <code>.env</code> under alternate casings. That's scar tissue. You don't write a test named “Case-Insensitive Blocklist &amp; .vscode HITL” unless production code previously failed it.
+      </p>
+
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    A[Raw path from tool args] --> B[Resolve / canonicalize]
+    B --> C[Split segments]
+    C --> D[trim + strip ADS + toLowerCase]
+    D --> E{Segment policy}
+    E -->|.git / .env / node_modules| F[DENY]
+    E -->|.vscode| G[ASK_USER]
+    E -->|other in-workspace| H[ALLOW]
+    style F fill:#f85149,color:#000
+    style G fill:#d29922,color:#000
+    style H fill:#3fb950,color:#000
+        </pre>
+      </div>
+
+      <hr />
+
+      <h2>Impact model: who actually gets hit</h2>
+
+      <p>
+        Triage asked the right question early: how does this affect <em>other</em> users if someone is “just asking Gemini to run commands”?
+      </p>
+
+      <p>
+        The realistic blast radius is shared workspaces and socialized agent usage:
+      </p>
+
+      <ul>
+        <li><strong>Clone / open a poisoned repo</strong> that contains instructions or files the agent is eager to “follow.”</li>
+        <li><strong>Team projects</strong> where one compromised settings write rides along in git and waits for the next PHP (or other) validation trigger on each machine.</li>
+        <li><strong>Agent-assisted onboarding</strong> (“please follow my codebase file named main.py”) that causes the model to create config as part of being helpful.</li>
+      </ul>
+
+      <p>
+        Persistence is the quiet part. Once <code>executablePath</code> (or tasks, or a similar sink) is rewritten, the agent can leave. The next ordinary IDE action finishes the job.
+      </p>
+
+      <hr />
+
+      <h2>Disclosure timeline</h2>
+
+      <ul>
+        <li><strong>7 Nov 2025</strong> — Report filed to Google AI VRP with PoC video; auto-triaged as likely actionable.</li>
+        <li><strong>7–8 Nov</strong> — Human triage; clarification on multi-user impact and HITL bypass.</li>
+        <li><strong>13–15 Nov</strong> — Standard 90-day disclosure discussion; bug filed with product team; report accepted.</li>
+        <li><strong>24 Nov</strong> — Same class reproduced on Google Antigravity; video shared.</li>
+        <li><strong>Jan 2026</strong> — Additional technical notes on case-insensitive sensitive-path handling in core path validation.</li>
+        <li><strong>3 Mar 2026</strong> — VRP panel reward: <strong>$1337</strong> (Other Exploitable Client-Side Issues; interaction required).</li>
+      </ul>
+
+      <p>
+        Google asked for the usual coordinated window so product teams could patch and prepare users. Credit to the Bug Hunters / Cloud VRP folks for staying engaged across Antigravity follow-ups and panel appeals.
+      </p>
+
+      <hr />
+
+      <h2>What I'd actually take from this</h2>
+
+      <p>
+        <strong>Match the security control to the OS, not to the string the LLM typed.</strong> Glob libraries default to case-sensitive matching. Windows and often macOS do not. Any allow/deny/ask decision keyed off a path string must normalize the way the filesystem will.
+      </p>
+
+      <p>
+        <strong>HITL gates are only as real as their classifiers.</strong> <code>require_confirmation</code> that never triggers is worse than no gate — it teaches users and auditors that the dangerous path is covered.
+      </p>
+
+      <p>
+        <strong>Config is code.</strong> Workspace settings that name executables, tasks that run shells, MCP stdio commands, sandbox proxy env vars — they're all process spawn with extra steps. Treat silent writes to those surfaces like silent writes to <code>.git/hooks</code>.
+      </p>
+
+      <p>
+        <strong>Prompt injection is the delivery; policy bugs are the exploit.</strong> The model was a confused deputy with a filesystem API. Closing the case fold closed three attack stories (settings RCE, Antigravity reproduction, sensitive-dir writes) at the same choke point.
+      </p>
+
+      <p>
+        <strong>Read the regression tests.</strong> When a suite starts asserting <code>settings.JSON</code>, <code>.VSCODE</code>, trailing dots, and <code>::$DATA</code>, someone already lost that argument with an attacker.
+      </p>
+
+      <hr />
+
+      <h2>If you build agents that edit disks</h2>
+
+      <ul>
+        <li>Normalize paths (case, ADS, trailing <code>.</code>/<code> </code> on Windows) before policy.</li>
+        <li>Keep an explicit sensitive-path policy separate from “is inside workspace.”</li>
+        <li>Default-deny or always-ask for <code>.vscode</code>, <code>.git</code>, env files, and any setting that can name a binary.</li>
+        <li>Don't confuse “the user is chatting with the agent” with “the user approved this write.”</li>
+      </ul>
+
+      <p>
+        On to the next one.
+      </p>
+
+      <div class="tags">
+        <span>vulnerability-research</span>
+        <span>ai-vrp</span>
+        <span>prompt-injection</span>
+        <span>gemini</span>
+        <span>vscode</span>
+        <span>antigravity</span>
+        <span>case-sensitivity</span>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>
+        <a href="https://github.com/abhishekkandi">GitHub</a>
+        ·
+        <a href="mailto:abhishekkandi008@gmail.com">Contact</a>
+      </span>
+    </div>
+  </footer>
+</body>
+</html>
