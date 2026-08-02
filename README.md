@@ -6,4 +6,4 @@ Personal security research blog.
 
 ## Posts
 
-- [When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity](./posts/case-insensitivity-bypass-gemini-vscode-agents/) — Bounty awarded by Google $$$$$
+- [When the Agent Went Rogue: Prompt Injection to RCE in Google Gemini Antigravity](./posts/case-insensitivity-bypass-gemini-vscode-agents/) — Bounty awarded by Google $$$$$
