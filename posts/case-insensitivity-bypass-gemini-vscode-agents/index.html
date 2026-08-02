@@ -48,7 +48,7 @@
       <h2>The setup: what “sensitive file” means to an agent</h2>
 
       <p>
-        Coding agents that can edit your workspace need a human-in-the-loop for certain files. Not every write should be auto-approved. In particular, anything under <code>.vscode/</code> can change how the editor behaves — tasks, launch configs, language server paths, validation hooks. Those aren't “just another source file.” They're capability.
+        Coding agents that can edit your workspace need a human-in-the-loop for certain paths. Not every write should be auto-approved. Surfaces like <code>.env</code>, <code>.git</code>, and <code>.vscode</code> are different from ordinary source files: secrets, repository hooks/config, and editor behavior — tasks, launch configs, language server paths, validation hooks. Those aren't “just another source file.” They’re capability.
       </p>
 
       <p>
