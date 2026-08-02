@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents | abhishekkandi</title>
-  <meta name="description" content="Case-insensitivity bypass of Gemini AI's sensitive-file HITL check on Windows, escalating from prompt injection to local code execution via VS Code settings. Google AI VRP, $1337." />
+  <title>When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity | abhishekkandi</title>
+  <meta name="description" content="Prompt injection to RCE in Google Gemini Antigravity — a case-insensitive path bypass of the sensitive-file HITL check, silent settings writes, and local code execution. Google AI VRP, $1337." />
   <meta name="author" content="Abhishek Kandi" />
-  <meta property="og:title" content="Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents" />
-  <meta property="og:description" content="A case-sensitive security control on a case-insensitive filesystem. Prompt injection → silent settings write → code execution. Google AI VRP." />
+  <meta property="og:title" content="When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity" />
+  <meta property="og:description" content="Prompt injection → case-blind HITL bypass → poisoned Antigravity/workspace settings → code execution. Google AI VRP." />
   <meta property="og:type" content="article" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -47,7 +47,7 @@
   <main class="wrap">
     <article class="post hero">
       <a class="back" href="../../">← Posts</a>
-      <h1>Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents</h1>
+      <h1>When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity</h1>
       <div class="meta">
         <span>02 Aug, 2026</span>
         <span>·</span>
@@ -61,7 +61,7 @@
       </p>
 
       <p>
-        In November 2025 I reported a vulnerability in Google's Gemini-powered coding agents (VS Code / IDE companion flows, later reproduced in <a href="https://antigravity.google">Google Antigravity</a>) to the Google AI Vulnerability Reward Program. The panel eventually rewarded it under “Other Exploitable Client-Side Issues.” The interesting part wasn't the dollar amount. It was how thin the gap was between “we require confirmation for <code>.vscode/*.json</code>” and “calc.exe just opened.”
+        In November 2025 I reported a vulnerability in Google’s Gemini-powered coding agents — first in VS Code / IDE companion flows, then reproduced end-to-end in <a href="https://antigravity.google">Google Antigravity</a> — to the Google AI Vulnerability Reward Program. The panel eventually rewarded it under “Other Exploitable Client-Side Issues.” The interesting part wasn't the dollar amount. It was how thin the gap was between “we require confirmation for <code>.vscode/*.json</code>” and “calc.exe just opened.”
       </p>
 
       <p>

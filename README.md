@@ -6,4 +6,4 @@ Personal security research blog.
 
 ## Posts
 
-- [Case Doesn't Matter — Until It Does: Prompt Injection to RCE in Gemini VS Code Agents](./posts/case-insensitivity-bypass-gemini-vscode-agents/) — Google AI VRP ($1337)
+- [When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity](./posts/case-insensitivity-bypass-gemini-vscode-agents/) — Google AI VRP ($1337)
