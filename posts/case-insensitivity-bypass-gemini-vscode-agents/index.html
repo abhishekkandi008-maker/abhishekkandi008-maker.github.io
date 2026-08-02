@@ -49,7 +49,7 @@
       </p>
 
       <p>
-        In November 2025 I reported a vulnerability in Google’s Gemini-powered coding agents — first in VS Code / IDE companion flows, then reproduced end-to-end in <a href="https://antigravity.google">Google Antigravity</a> — to the Google AI Vulnerability Reward Program. What looked like a helpful edit was state manipulation: a single injected prompt turned workspace configuration into full code execution on the developer’s machine — no confirmation, no sandbox escape required, just <code>.vscode/settings.JSON</code> and then <code>calc.exe</code>.
+        In November 2025 I reported a vulnerability in Google’s Gemini-powered coding agents — first in VS Code / IDE companion flows, then reproduced end-to-end in <a href="https://antigravity.google">Google Antigravity</a> — to the Google AI Vulnerability Reward Program. Sensitive special files like <code>.vscode/settings.json</code> are supposed to require explicit user permission before an agent can touch them. That gate is the whole promise of human-in-the-loop. What I showed was state manipulation that skipped it: an injected prompt steered the agent to write the same settings under a differently cased path, the permission check never fired, and workspace config became code execution — from “please follow my codebase” to <code>calc.exe</code> with no Confirm click in between.
       </p>
 
       <p>
