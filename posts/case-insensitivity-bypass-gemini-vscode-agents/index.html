@@ -7,21 +7,20 @@
   <meta name="description" content="Prompt injection to RCE in Google Gemini Antigravity — a case-insensitive path bypass of the sensitive-file HITL check, silent settings writes, and local code execution. Bounty awarded by Google $$$$$." />
   <meta name="author" content="Abhishek Kandi" />
   <meta property="og:title" content="When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity" />
-  <meta property="og:description" content="Prompt injection → case-blind HITL bypass → poisoned Antigravity/workspace settings → code execution. Google AI VRP." />
+  <meta property="og:description" content="Prompt injection → case-blind HITL bypass → poisoned Antigravity/workspace settings → code execution." />
   <meta property="og:type" content="article" />
-  <meta name="twitter:card" content="summary_large_image" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="../../assets/style.css?v=3" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css?v=4" />
 </head>
 <body>
   <main class="wrap">
-    <article class="post hero">
+    <article class="post">
       <h1>When Case Didn't Count: Prompt Injection to RCE in Google Gemini Antigravity</h1>
       <div class="meta">
-        <span>02 Aug, 2026</span>
-        <span>·</span>
+        <time datetime="2026-08-02">02 Aug, 2026</time>
+        <span class="sep">|</span>
         <span class="tag">Bounty awarded by Google $$$$$</span>
         <span class="tag">RCE</span>
         <span class="tag">Prompt Injection</span>
@@ -88,29 +87,23 @@
         The sensitive-file gate evaluated the path as a string against a case-sensitive pattern. Mismatch → “not sensitive” → auto-approve. The write landed on disk. Windows folded the name. The real workspace settings were now attacker-controlled, and no human had clicked Confirm.
       </p>
 
-      <div class="diagram" data-title="Figure 1 · Sensitive-file permission bypass">
-        <pre class="mermaid">
+      <pre class="mermaid">
 flowchart TD
-    A["Injected prompt / poisoned repo<br/>asks Antigravity agent to help"] --> B["Agent proposes write<br/>to .vscode settings"]
-    B --> C{"Sensitive-file check<br/>case-sensitive glob match?"}
-
-    C -->|"settings.json<br/>permission required"| D["HITL: ask user"]
-    C -->|"settings.JSON / .VSCODE<br/>pattern miss"| E["Treated as normal file<br/>auto-approved"]
-
-    D --> F["User can refuse"]
-    E --> G["Windows writes the real<br/>.vscode/settings.json"]
-    G --> H["Workspace state poisoned<br/>executablePath = malware"]
-    H --> I["Save / validate .php<br/>→ code execution"]
-
-    style C fill:#21262d,stroke:#58a6ff,color:#f0f6fc
-    style D fill:#238636,stroke:#3fb950,color:#fff
-    style F fill:#238636,stroke:#3fb950,color:#fff
-    style E fill:#da3633,stroke:#f85149,color:#fff
-    style G fill:#da3633,stroke:#f85149,color:#fff
-    style H fill:#da3633,stroke:#f85149,color:#fff
-    style I fill:#9e6a03,stroke:#d29922,color:#fff
-        </pre>
-      </div>
+    A[Injected prompt / poisoned repo] --> B[Agent proposes write to settings]
+    B --> C{Case-sensitive glob match?}
+    C -->|settings.json| D[HITL: require confirmation]
+    C -->|settings.JSON / .VSCODE| E[No match → auto-approve]
+    D --> F[User can refuse]
+    E --> G[Windows writes real settings.json]
+    G --> H[Workspace settings poisoned]
+    H --> I[Validate/save → code execution]
+    style E fill:#ff6b6b,color:#000
+    style G fill:#ff6b6b,color:#000
+    style H fill:#ff6b6b,color:#000
+    style I fill:#ff6b6b,color:#000
+    style D fill:#51cf66,color:#000
+    style F fill:#51cf66,color:#000
+      </pre>
 
       <p>
         That single boolean — matched or not — is the whole vulnerability. Sensitive special files like <code>settings.json</code> are supposed to require permission. Miss the pattern, skip the permission, own the machine’s config.
@@ -136,29 +129,26 @@ flowchart TD
         Once that value sat in the (bypassed) settings file, a normal developer action — opening or saving a PHP file that triggers validation — caused the PHP language tooling to spawn whatever path was configured. Calculator popping is the classic “I control the process image” demo. In a real attack that path is malware, a reverse shell, or a loader that never shows a window.
       </p>
 
-      <div class="diagram" data-title="Figure 2 · Prompt injection to host code execution">
-        <pre class="mermaid">
+      <pre class="mermaid">
 sequenceDiagram
-    autonumber
-    participant A as Attacker
-    participant R as Poisoned repo / prompt
-    participant G as Gemini Antigravity
-    participant P as Permission gate<br/>(sensitive files)
-    participant W as Windows FS
-    participant X as PHP / IDE extension
+    participant Attacker
+    participant Repo as Poisoned repo / prompt
+    participant Agent as Gemini Antigravity
+    participant Gate as Permission gate
+    participant FS as Windows filesystem
+    participant Ext as PHP / IDE extension
 
-    A->>R: Plant lure ("follow my codebase…")
-    R->>G: Developer opens workspace + chats
-    G->>P: writeFile(.vscode/settings.JSON)
-    Note over P: settings.json needs permission<br/>settings.JSON misses case-sensitive check
-    P-->>G: Auto-approve (HITL never shown)
-    G->>W: Persist php.validate.executablePath
-    Note over W: settings.JSON ≡ settings.json
-    X->>W: Read executablePath on validate/save
-    X->>X: spawn(configured binary)
-    Note over X: Full code execution as the user
-        </pre>
-      </div>
+    Attacker->>Repo: Plant lure / injected instructions
+    Repo->>Agent: Developer opens workspace + chats
+    Agent->>Gate: writeFile(.vscode/settings.JSON)
+    Note over Gate: case-sensitive glob miss
+    Gate-->>Agent: auto-approve (no HITL)
+    Agent->>FS: Persist php.validate.executablePath
+    Note over FS: settings.JSON ≡ settings.json
+    Ext->>FS: Read executablePath
+    Ext->>Ext: spawn(configured binary)
+    Note over Ext: code execution as the user
+      </pre>
 
       <div class="callout">
         <div class="label">Important nuance</div>
@@ -180,7 +170,7 @@ sequenceDiagram
       </p>
 
       <blockquote>
-        You don't need the model to defeat the safety system if the safety system already decided this path wasn't worth checking.
+        <p>You don't need the model to defeat the safety system if the safety system already decided this path wasn't worth checking.</p>
       </blockquote>
 
       <hr />
@@ -241,24 +231,19 @@ path.join(mockCwd, '.vscode::$DATA', 'settings.json'),</code></pre>
         Those tests expect <code>ASK_USER</code> for in-workspace <code>.vscode</code> mutations and hard denials for blocked trees like <code>.git</code> / <code>.env</code> under alternate casings. That's scar tissue. You don't write a test named “Case-Insensitive Blocklist &amp; .vscode HITL” unless production code previously failed it.
       </p>
 
-      <div class="diagram" data-title="Figure 3 · Post-fix path policy">
-        <pre class="mermaid">
+      <pre class="mermaid">
 flowchart LR
-    A["Tool path arg"] --> B["Resolve / canonicalize"]
-    B --> C["Split path segments"]
-    C --> D["Normalize:<br/>trim · strip ADS · toLowerCase"]
-    D --> E{"Sensitive segment?"}
-    E -->|".git / .env / node_modules"| F["DENY"]
-    E -->|".vscode / settings"| G["ASK_USER<br/>permission required"]
-    E -->|"other in-workspace"| H["ALLOW"]
-
-    style A fill:#21262d,stroke:#8b949e,color:#f0f6fc
-    style D fill:#21262d,stroke:#58a6ff,color:#f0f6fc
-    style F fill:#da3633,stroke:#f85149,color:#fff
-    style G fill:#9e6a03,stroke:#d29922,color:#fff
-    style H fill:#238636,stroke:#3fb950,color:#fff
-        </pre>
-      </div>
+    A[Raw path from tool args] --> B[Resolve / canonicalize]
+    B --> C[Split segments]
+    C --> D[trim + strip ADS + toLowerCase]
+    D --> E{Segment policy}
+    E -->|.git / .env / node_modules| F[DENY]
+    E -->|.vscode| G[ASK_USER]
+    E -->|other in-workspace| H[ALLOW]
+    style F fill:#ff6b6b,color:#000
+    style G fill:#ffd43b,color:#000
+    style H fill:#51cf66,color:#000
+      </pre>
 
       <hr />
 
@@ -353,45 +338,30 @@ flowchart LR
   <footer class="site-footer">
     <div class="inner">
       <span>© 2026 Abhishek Kandi</span>
-      <span>Google AI VRP · Responsible disclosure</span>
+      <span>Responsible disclosure</span>
     </div>
   </footer>
+
   <script type="module">
     import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
     mermaid.initialize({
       startOnLoad: false,
       theme: "dark",
       securityLevel: "loose",
-      flowchart: { htmlLabels: true, curve: "basis", padding: 16, nodeSpacing: 40, rankSpacing: 50 },
-      sequence: { mirrorActors: false, messageMargin: 40, actorMargin: 50, boxMargin: 12 },
       themeVariables: {
+        darkMode: true,
+        background: "#0d1117",
         primaryColor: "#161b22",
-        primaryTextColor: "#f0f6fc",
+        primaryTextColor: "#e6edf3",
         primaryBorderColor: "#58a6ff",
         lineColor: "#8b949e",
         secondaryColor: "#21262d",
         tertiaryColor: "#0d1117",
         fontFamily: "IBM Plex Sans, sans-serif",
-        fontSize: "16px",
-        textColor: "#f0f6fc",
-        mainBkg: "#161b22",
-        nodeBorder: "#58a6ff",
-        clusterBkg: "#0d1117",
-        titleColor: "#f0f6fc",
-        actorTextColor: "#f0f6fc",
-        actorBkg: "#161b22",
-        actorBorder: "#58a6ff",
-        signalColor: "#c9d1d9",
-        labelBoxBkgColor: "#161b22",
-        labelTextColor: "#f0f6fc",
-        noteBkgColor: "#21262d",
-        noteTextColor: "#f0f6fc",
+        fontSize: "15px",
       },
     });
     await mermaid.run({ querySelector: ".mermaid" });
-    const enhance = document.createElement("script");
-    enhance.src = "../../assets/diagrams.js?v=3";
-    document.body.appendChild(enhance);
   </script>
 </body>
 </html>
