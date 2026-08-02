@@ -45,15 +45,19 @@
       </div>
 
       <p class="lede">
-        Here's a fun genre of AI agent bug: the one where the security control is correct on paper, wrong on Windows, and the model never needs to “jailbreak” anything — it just writes a file with the wrong casing.
+        Google’s agentic IDEs promise a hard rule: sensitive files like <code>.vscode/settings.json</code> cannot be changed without your explicit permission. Human-in-the-loop is the product. This bug showed that promise was a string match away from collapsing.
       </p>
 
       <p>
-        In November 2025 I reported a vulnerability in Google’s Gemini-powered coding agents — first in VS Code / IDE companion flows, then reproduced end-to-end in <a href="https://antigravity.google">Google Antigravity</a> — to the Google AI Vulnerability Reward Program. Sensitive special files like <code>.vscode/settings.json</code> are supposed to require explicit user permission before an agent can touch them. That gate is the whole promise of human-in-the-loop. What I showed was state manipulation that skipped it: an injected prompt steered the agent to write the same settings under a differently cased path, the permission check never fired, and workspace config became code execution.
+        In November 2025 I reported a prompt-injection-to-RCE chain against Google’s Gemini coding agents, then reproduced it end-to-end in <a href="https://antigravity.google">Google Antigravity</a>, through the Google AI Vulnerability Reward Program. The agent did not need to sound malicious. It needed one differently cased path.
       </p>
 
       <p>
-        The chain is short enough to say in one breath: <strong>prompt injection → case-insensitive path bypass of a HITL gate → silent workspace settings write → extension-triggered code execution</strong>.
+        On Windows, <code>settings.json</code> and <code>settings.JSON</code> are the same file. The permission check treated them as different. So an injected prompt could steer Antigravity to rewrite workspace settings silently — no Confirm dialog — and plant an executable path that the IDE later launched as the developer. That is not a jailbreak story. It is state manipulation: from untrusted text, past the HITL gate, into full code execution on the host.
+      </p>
+
+      <p>
+        The chain in one line: <strong>prompt injection → case-blind bypass of a sensitive-file permission check → silent settings write → extension-triggered RCE</strong>.
       </p>
 
       <hr />
