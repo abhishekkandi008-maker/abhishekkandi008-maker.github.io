@@ -231,21 +231,20 @@ pre code {
 
 /* —— Expandable diagrams (dialog) —— */
 .diagram {
-  --diagram-collapsed: 280px;
   margin: 0 0 1.75rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(88, 166, 255, 0.1), transparent 55%),
-    linear-gradient(180deg, #12171f 0%, var(--bg-elevated) 100%);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
-  overflow: hidden;
-  transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(88, 166, 255, 0.08), transparent 55%),
+    var(--bg-elevated);
+  box-shadow: none;
+  overflow: visible;
+  transition: border-color 0.25s var(--ease);
 }
 
 .diagram:hover {
-  border-color: rgba(88, 166, 255, 0.45);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+  border-color: rgba(88, 166, 255, 0.4);
+  box-shadow: none;
 }
 
 .diagram__toolbar {
@@ -312,55 +311,24 @@ pre code {
 
 .diagram__stage {
   position: relative;
-  max-height: var(--diagram-collapsed);
-  overflow: hidden;
-  padding: 1.25rem 0.9rem 2.4rem;
-  cursor: zoom-in;
-  background: #0b0f14;
+  max-height: none;
+  overflow: visible;
+  overflow-x: auto;
+  padding: 1.35rem 1rem 1.25rem;
+  background: transparent;
 }
 
-.diagram__stage:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
+.diagram__stage::before,
 .diagram__stage::after {
-  content: "Click or Expand · zoom in dialog";
-  position: absolute;
-  left: 50%;
-  bottom: 0.85rem;
-  transform: translateX(-50%);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--heading);
-  background: rgba(13, 17, 23, 0.88);
-  border: 1px solid rgba(88, 166, 255, 0.35);
-  border-radius: 999px;
-  padding: 0.35rem 0.75rem;
-  pointer-events: none;
-  z-index: 2;
-  white-space: nowrap;
-}
-
-.diagram__stage::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 96px;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(11, 15, 20, 0.96) 58%, #0b0f14);
-  z-index: 1;
+  display: none;
 }
 
 .diagram .mermaid {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  min-height: 180px;
+  align-items: center;
+  min-height: 0;
+  width: 100%;
   margin: 0;
   background: transparent;
   border: none;
@@ -369,9 +337,11 @@ pre code {
 }
 
 .diagram .mermaid svg {
-  max-width: 100%;
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
   height: auto !important;
-  min-width: min(100%, 520px);
+  margin: 0 auto;
 }
 
 /* Dialog lightbox */
@@ -628,10 +598,6 @@ pre code {
 
   .hero {
     padding-top: 2.25rem;
-  }
-
-  .diagram {
-    --diagram-collapsed: 220px;
   }
 
   .diagram__toolbar {

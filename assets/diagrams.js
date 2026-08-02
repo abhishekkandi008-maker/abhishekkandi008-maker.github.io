@@ -66,7 +66,6 @@
   function setZoom(next, originX, originY) {
     const prev = zoom;
     zoom = clamp(next, MIN_ZOOM, MAX_ZOOM);
-
     if (originX != null && originY != null && prev !== 0) {
       const rect = viewportEl.getBoundingClientRect();
       const cx = originX - rect.left - rect.width / 2;
@@ -75,24 +74,32 @@
       panX = cx - (cx - panX) * ratio;
       panY = cy - (cy - panY) * ratio;
     }
-
     applyTransform();
   }
 
   function fitAndCenter() {
     const svg = canvasEl.querySelector("svg");
     if (!svg) {
-      zoom = 1.35;
+      zoom = 1.25;
       panX = 0;
       panY = 0;
       applyTransform();
       return;
     }
 
-    // Force measurable intrinsic size from viewBox
     const vb = svg.viewBox && svg.viewBox.baseVal;
-    const naturalW = (vb && vb.width) || svg.getBBox?.().width || svg.clientWidth || 800;
-    const naturalH = (vb && vb.height) || svg.getBBox?.().height || svg.clientHeight || 500;
+    let naturalW = (vb && vb.width) || 0;
+    let naturalH = (vb && vb.height) || 0;
+    try {
+      if (!naturalW || !naturalH) {
+        const box = svg.getBBox();
+        naturalW = box.width || 800;
+        naturalH = box.height || 500;
+      }
+    } catch (_) {
+      naturalW = naturalW || 800;
+      naturalH = naturalH || 500;
+    }
 
     svg.setAttribute("width", String(naturalW));
     svg.setAttribute("height", String(naturalH));
@@ -100,11 +107,10 @@
     svg.style.height = `${naturalH}px`;
     svg.style.maxWidth = "none";
 
-    const availW = Math.max(viewportEl.clientWidth - 48, 200);
-    const availH = Math.max(viewportEl.clientHeight - 48, 200);
+    const availW = Math.max(viewportEl.clientWidth - 64, 240);
+    const availH = Math.max(viewportEl.clientHeight - 64, 240);
     const fit = Math.min(availW / naturalW, availH / naturalH);
-    // Prefer a readable size: at least 1.15x, up to fit*0.92 if that is larger
-    zoom = clamp(Math.max(fit * 0.92, 1.15), MIN_ZOOM, MAX_ZOOM);
+    zoom = clamp(Math.max(fit * 0.95, 1), MIN_ZOOM, MAX_ZOOM);
     panX = 0;
     panY = 0;
     applyTransform();
@@ -131,11 +137,6 @@
     titleEl.textContent = label;
     canvasEl.innerHTML = stage.innerHTML;
 
-    const svg = canvasEl.querySelector("svg");
-    if (svg) {
-      svg.removeAttribute("style");
-    }
-
     lightbox.classList.add("is-open");
     lightbox.setAttribute("aria-hidden", "false");
     document.body.classList.add("lightbox-open");
@@ -161,35 +162,26 @@
 
     const stage = document.createElement("div");
     stage.className = "diagram__stage";
-    stage.setAttribute("role", "button");
-    stage.setAttribute("tabindex", "0");
-    stage.setAttribute("aria-label", `Expand ${title}`);
     while (figure.firstChild) stage.appendChild(figure.firstChild);
 
     figure.appendChild(toolbar);
     figure.appendChild(stage);
 
-    // Make inline preview SVG a bit larger / sharper
-    const previewSvg = stage.querySelector("svg");
-    if (previewSvg) {
-      previewSvg.style.maxWidth = "100%";
-      previewSvg.style.height = "auto";
-      previewSvg.style.transformOrigin = "top center";
+    // Keep full inline SVG readable (realnits-style: never crop)
+    const svg = stage.querySelector("svg");
+    if (svg) {
+      svg.removeAttribute("height");
+      svg.style.width = "100%";
+      svg.style.maxWidth = "100%";
+      svg.style.height = "auto";
+      svg.style.display = "block";
+      svg.style.margin = "0 auto";
     }
 
     const expandBtn = toolbar.querySelector('[data-action="expand"]');
-    const openFrom = (el) => openLightbox(figure, el);
-
     expandBtn.addEventListener("click", (event) => {
       event.stopPropagation();
-      openFrom(expandBtn);
-    });
-    stage.addEventListener("click", () => openFrom(stage));
-    stage.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openFrom(stage);
-      }
+      openLightbox(figure, expandBtn);
     });
   });
 
