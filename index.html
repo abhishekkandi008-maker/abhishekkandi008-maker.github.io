@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Abhishek Kandi — Security Research</title>
-  <meta name="description" content="Security research notes on AI agents, eval injection, kernel exploitation, Azure Cloud Shell, and bypasses in Gemini-powered developer tooling." />
+  <meta name="description" content="Security research notes on AI agents, VirtualBox side channels, kernel exploitation, Azure Cloud Shell, and bypasses in Gemini-powered developer tooling." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -18,6 +18,11 @@
     </section>
 
     <section class="card-list">
+      <a class="post-card" href="posts/meltdown-moment-cve-2025-21533-virtualbox-ssb/">
+        <div class="date">04 Aug, 2026</div>
+        <h2>The Meltdown Moment: CVE-2025-21533 — Speculative Store Bypass in Oracle VirtualBox</h2>
+        <p>Nullcon talk: a low-privileged local attacker used speculative store bypass and cache timing to cross VirtualBox’s isolation and leak host-sensitive data — fixed in Oracle’s Jan 2025 CPU.</p>
+      </a>
       <a class="post-card" href="posts/eval-injection-bypass-gemini-cli/">
         <div class="date">04 Aug, 2026</div>
         <h2>Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection</h2>
