@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>When the Agent Went Rogue: Prompt Injection to RCE in Google Gemini Antigravity</title>
-  <meta name="description" content="Prompt injection to RCE in Google Gemini Antigravity — a case-insensitive path bypass of the sensitive-file HITL check, silent settings writes, and local code execution. Bounty awarded by Google $$$$$." />
+  <meta name="description" content="Antigravity can go rogue: prompt injection to RCE via a case-insensitive HITL bypass — silent settings writes, extension-triggered code execution, and why vibe-coded agents with zero boundaries are a security process problem. Bounty awarded by Google $$$$$." />
   <meta name="author" content="Abhishek Kandi" />
   <meta property="og:title" content="When the Agent Went Rogue: Prompt Injection to RCE in Google Gemini Antigravity" />
-  <meta property="og:description" content="Prompt injection → case-blind HITL bypass → poisoned Antigravity/workspace settings → code execution." />
+  <meta property="og:description" content="Prompt injection → case-blind HITL bypass → poisoned Antigravity/workspace settings → code execution. Antigravity can go rogue." />
   <meta property="og:type" content="article" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,6 +24,7 @@
         <span class="tag">Bounty awarded by Google $$$$$</span>
         <span class="tag">RCE</span>
         <span class="tag">Prompt Injection</span>
+        <span class="tag">Antigravity</span>
       </div>
 
       <p class="lede">
@@ -45,20 +46,107 @@
       <div class="callout">
         <div class="label">Note</div>
         <p style="margin:0">
-          The exploit prompt used in this research is <strong>not disclosed</strong> in this blog.
+          The exploit prompt used in this research is <strong>not disclosed</strong> in this blog. This post elaborates the attack chain and the product failure — not a copy-paste PoC.
         </p>
       </div>
 
       <hr />
 
-      <h2>The setup: what “sensitive file” means to an agent</h2>
+      <h2>Antigravity can go rogue (and “vibe coding” is why that hurts)</h2>
 
       <p>
-        Coding agents that can edit your workspace need a human-in-the-loop for certain paths. Not every write should be auto-approved. Surfaces like <code>.env</code>, <code>.git</code>, and <code>.vscode</code> are different from ordinary source files: secrets, repository hooks/config, and editor behavior — tasks, launch configs, language server paths, validation hooks. Those aren't “just another source file.” They’re capability.
+        I wrote about this publicly on
+        <a href="https://www.linkedin.com/posts/kandiabhishek08_google-antigravity-cli-was-built-entirely-activity-7463117497454469120-R1hu">LinkedIn</a>
+        with a joke that stopped being funny once you had a PoC video:
+        Google Antigravity felt like it was built on <em>vibe coding</em> — write prompts, drink iced coffee, pray to the AI — and because the thing with tools is still an LLM, it has almost no instinctive boundaries.
+        Tell it to float your laptop and it’ll try to be helpful about floating.
+        Tell it (or let another model tell it) to delete your hard drive and the vibe is “I love that journey for you” — then the tool call runs.
       </p>
 
       <p>
-        Gemini's defense was a sensitive-file check, conceptually:
+        The joke lands because the product promise is exactly that: an agent-first IDE that <em>does</em> things.
+        Security, as every developer learns the hard way, is not a one-time checkbox you vibe past.
+        It is a continuous process — and agent products are a continuous attack surface: every new tool, every new path policy, every new “helpful” default is another place the model can go rogue without sounding rogue.
+      </p>
+
+      <div class="insight">
+        <div class="label">What “went rogue” meant in this bug</div>
+        <p>
+          Not a cartoon evil assistant. A Gemini / Antigravity agent that <strong>silently wrote a sensitive workspace file</strong> the HITL gate was supposed to stop, then left poisoned config sitting on disk until a normal IDE action spawned attacker-chosen code.
+          Boundaries existed on paper. The case fold made them optional.
+        </p>
+      </div>
+
+      <p>
+        That LinkedIn thread was the punchline.
+        This post is the chain that made the punchline true.
+      </p>
+
+      <hr />
+
+      <h2>The attack chain, end to end</h2>
+
+      <p>
+        Same exploit path in both the Gemini VS Code agent workflow and the Antigravity reproduction.
+        Six phases. One missed boolean.
+      </p>
+
+      <pre class="mermaid">
+flowchart TD
+    P0[Phase 0: Attacker plants lure] --> P1[Phase 1: Victim opens workspace + chats with agent]
+    P1 --> P2[Phase 2: Injected instructions steer a settings write]
+    P2 --> P3[Phase 3: Case-blind path misses HITL]
+    P3 --> P4[Phase 4: Silent write poisons settings.json]
+    P4 --> P5[Phase 5: IDE / extension spawns configured binary]
+    P5 --> P6[Phase 6: Persistence — agent can leave; config remains]
+    style P3 fill:#ff6b6b,color:#000
+    style P4 fill:#ff6b6b,color:#000
+    style P5 fill:#ff6b6b,color:#000
+    style P6 fill:#ffa657,color:#000
+      </pre>
+
+      <h3>Phase 0 — Delivery: poison the context, not the model weights</h3>
+
+      <p>
+        The attacker does not need to jailbreak Gemini into confessing crimes.
+        They need the developer’s agent to <em>read attacker-controlled instructions</em> while it has write tools.
+        Realistic carriers:
+      </p>
+
+      <ul>
+        <li>A shared git repo with README / “follow this setup” / hidden instruction files the agent is eager to obey</li>
+        <li>A paste / ticket / chat message that looks like onboarding help (“please configure the project from main.py / the setup notes”)</li>
+        <li>Any social pattern where “being a good coding agent” means creating editor config without the human reading every path</li>
+      </ul>
+
+      <p>
+        Prompt injection here is delivery.
+        The exploit is what happens after the agent decides to write a privileged file.
+      </p>
+
+      <h3>Phase 1 — The agent has your privileges</h3>
+
+      <p>
+        Developer opens the workspace in VS Code with Gemini, or in <strong>Google Antigravity</strong>.
+        The agent can propose file creates/edits.
+        Sensitive paths are supposed to hit human-in-the-loop.
+        Ordinary source files can auto-approve.
+        That split is the entire security model for disk mutation.
+      </p>
+
+      <h3>Phase 2 — Steer a write at <code>settings</code>, not at malware.exe</h3>
+
+      <p>
+        The injected instructions do not need to say “run calc.”
+        They need the agent to create or edit workspace settings — the file that names executables, validators, tasks, language-server paths.
+        Config is code with extra steps.
+        Pointing <code>php.validate.executablePath</code> (or a similar sink) at an attacker binary is enough; the IDE will do the spawn later.
+      </p>
+
+      <h3>Phase 3 — The bypass: <code>settings.JSON</code> ≠ <code>settings.json</code> (to the checker)</h3>
+
+      <p>
+        Gemini’s defense was a sensitive-file check, conceptually:
       </p>
 
       <pre><code>const ALWAYS_CHECKED_EDIT_PATTERNS: Readonly&lt;Record&lt;string, boolean&gt;&gt; = {
@@ -66,11 +154,11 @@
 };</code></pre>
 
       <p>
-        If a proposed edit matched the glob, the agent was supposed to surface a confirmation. Edits that didn't match any sensitive pattern could be auto-approved. Sensible. On macOS and Linux — where the filesystem is (usually) case-sensitive — it even worked the way the author intended.
-      </p>
-
-      <p>
-        On Windows, the filesystem does not care about your casing. <code>settings.json</code> and <code>settings.JSON</code> are the same inode. The glob matcher did care.
+        If a proposed edit matched the glob, confirmation was required.
+        If it didn’t, auto-approve.
+        On case-sensitive filesystems that often works.
+        On Windows it doesn’t: <code>settings.json</code> and <code>settings.JSON</code> are the same file.
+        The glob matcher is case-sensitive. The OS is not.
       </p>
 
       <div class="callout danger">
@@ -82,16 +170,11 @@
         </p>
       </div>
 
-      <hr />
-
-      <h2>The bypass: <code>settings.JSON</code> is not <code>settings.json</code> (to the checker)</h2>
-
       <p>
-        Demonstration was straightforward. In the Gemini chat surface for a VS Code agent workflow, an injected / steered prompt could instruct the model to create or edit a file named with alternate casing — for example <code>.vscode/settings.JSON</code> instead of <code>.vscode/settings.json</code>.
-      </p>
-
-      <p>
-        The sensitive-file gate evaluated the path as a string against a case-sensitive pattern. Mismatch → “not sensitive” → auto-approve. The write landed on disk. Windows folded the name. The real workspace settings were now attacker-controlled, and no human had clicked Confirm.
+        So the steered write uses a path like <code>.vscode/settings.JSON</code> or <code>.VSCODE/settings.json</code>.
+        Gate evaluates the string → no match → <strong>no Confirm dialog</strong>.
+        Antigravity / Gemini proceeds like it edited a boring file.
+        That is the moment the agent “goes rogue”: not because it argued with safety, but because safety never woke up.
       </p>
 
       <pre class="mermaid">
@@ -112,20 +195,13 @@ flowchart TD
     style F fill:#51cf66,color:#000
       </pre>
 
-      <p>
-        That single boolean — matched or not — is the whole vulnerability. Sensitive special files like <code>settings.json</code> are supposed to require permission. Miss the pattern, skip the permission, own the machine’s config.
-      </p>
-
-      <hr />
-
-      <h2>From a JSON key to code on the host</h2>
+      <h3>Phase 4 — Silent poison lands on disk</h3>
 
       <p>
-        Prompt injection against agents is rarely “make the model say something naughty.” The useful goal is <em>privilege escalation past human controls</em>. Here the privilege was “write workspace config without asking,” and the sink was a well-known VS Code / extension pattern: executable paths in settings.
-      </p>
-
-      <p>
-        The PoC targeted:
+        The write persists. Windows folds the name.
+        Real workspace settings now contain attacker-chosen keys.
+        No human clicked Confirm.
+        Example sink used in the PoC:
       </p>
 
       <pre><code>{
@@ -133,7 +209,18 @@ flowchart TD
 }</code></pre>
 
       <p>
-        Once that value sat in the (bypassed) settings file, a normal developer action — opening or saving a PHP file that triggers validation — caused the PHP language tooling to spawn whatever path was configured. Calculator popping is the classic “I control the process image” demo. In a real attack that path is malware, a reverse shell, or a loader that never shows a window.
+        Calculator is the demo.
+        In a real attack that path is malware, a reverse shell, or a quiet loader.
+        Other sinks exist in the same family: tasks that run shells, MCP stdio commands, any setting that names a process image.
+      </p>
+
+      <h3>Phase 5 — Ordinary IDE behavior finishes the RCE</h3>
+
+      <p>
+        Opening or saving a PHP file (or whatever triggers the configured validator) causes the language tooling to spawn <code>executablePath</code>.
+        The agent does not need to stay in the chat.
+        The developer does not need to approve a “run this binary” tool call.
+        Config → process spawn. Code execution as the user.
       </p>
 
       <pre class="mermaid">
@@ -157,12 +244,47 @@ sequenceDiagram
     Note over Ext: code execution as the user
       </pre>
 
+      <h3>Phase 6 — Persistence after the agent leaves</h3>
+
+      <p>
+        Once settings are rewritten, the malicious chat can end.
+        The next ordinary IDE action on another machine that pulled the same poisoned settings (or the same repo that re-triggers the agent) finishes the job again.
+        Blast radius is shared workspaces and socialized agent usage — not unauthenticated remote entry.
+      </p>
+
       <div class="callout">
         <div class="label">Important nuance</div>
         <p style="margin:0">
           This is a <em>local</em> chain with user interaction (the developer uses the agent / opens the workspace). The severity comes from silent bypass of the control that was supposed to make that interaction safe — not from unauthenticated remote entry. Shared team repos and “please follow my codebase” social patterns are how it spreads between machines.
         </p>
       </div>
+
+      <hr />
+
+      <h2>The setup: what “sensitive file” means to an agent</h2>
+
+      <p>
+        Coding agents that can edit your workspace need a human-in-the-loop for certain paths. Not every write should be auto-approved. Surfaces like <code>.env</code>, <code>.git</code>, and <code>.vscode</code> are different from ordinary source files: secrets, repository hooks/config, and editor behavior — tasks, launch configs, language server paths, validation hooks. Those aren't “just another source file.” They’re capability.
+      </p>
+
+      <p>
+        The product already knew that. The patterns existed. The bug was not “forgot to have a blocklist.”
+        The bug was “blocklist compared the wrong string to the wrong filesystem.”
+      </p>
+
+      <hr />
+
+      <h2>From a JSON key to code on the host</h2>
+
+      <p>
+        Prompt injection against agents is rarely “make the model say something naughty.” The useful goal is <em>privilege escalation past human controls</em>. Here the privilege was “write workspace config without asking,” and the sink was a well-known VS Code / extension pattern: executable paths in settings.
+      </p>
+
+      <p>
+        That is why Antigravity going rogue is so boring and so bad at the same time.
+        Nobody had to convince the model to be evil.
+        Somebody had to convince it to be <em>helpful about config</em> on a path the policy misclassified.
+      </p>
 
       <hr />
 
@@ -180,12 +302,17 @@ sequenceDiagram
         <p>You don't need the model to defeat the safety system if the safety system already decided this path wasn't worth checking.</p>
       </blockquote>
 
+      <p>
+        So when I say the agent went rogue, I mean the <em>system</em> handed it rogue-shaped power.
+        The LinkedIn line about zero boundaries is the user-visible version of the same failure: if the only boundary is a classifier, and the classifier misses casing, you effectively have no boundary.
+      </p>
+
       <hr />
 
       <h2>Same bug, wider surface: Antigravity and path blocklists</h2>
 
       <p>
-        After the initial VS Code / Gemini agent report, I reproduced the same case-folding idea against <strong>Google Antigravity</strong> — Google's agent-first IDE surface — with a separate PoC video for the VRP thread. Shared agent cores share failure modes.
+        After the initial VS Code / Gemini agent report, I reproduced the same case-folding idea against <strong>Google Antigravity</strong> — Google's agent-first IDE surface — with a separate PoC video for the VRP thread. Shared agent cores share failure modes. If Antigravity CLI / agent tooling was assembled under “ship the vibe,” this is exactly the class of bug you get: product moves fast, path policy stays stringly-typed, Windows reminds you that filesystems are not JSON.
       </p>
 
       <p>
@@ -205,6 +332,23 @@ private isPathWithinRoot(pathToCheck: string, rootDirectory: string): boolean {
       <p>
         Containment alone happily allows <code>.GIT/config</code> or oddly cased <code>.vscode</code> segments on Windows, because <code>path.relative</code> and the OS agree the path is “inside,” while a naive string blocklist for <code>.git</code> may not. Sensitive directories need <strong>case-insensitive segment checks</strong> (and, on Windows, awareness of trailing-dot / ADS weirdness) — not just glob equality on the path the model typed.
       </p>
+
+      <div class="paper-grid">
+        <div class="paper-card">
+          <h3>What the agent thought it did</h3>
+          <div class="cite">Model / tool layer</div>
+          <p>
+            “Create a settings file so PHP validation works.” Helpful. In-character. Looks like onboarding, not exploitation.
+          </p>
+        </div>
+        <div class="paper-card">
+          <h3>What the OS actually did</h3>
+          <div class="cite">Windows + IDE</div>
+          <p>
+            Wrote the real <code>.vscode/settings.json</code>, skipped HITL, and left a process-spawn sink for the next editor action.
+          </p>
+        </div>
+      </div>
 
       <hr />
 
@@ -268,6 +412,7 @@ flowchart LR
         <li><strong>Clone / open a poisoned repo</strong> that contains instructions or files the agent is eager to “follow.”</li>
         <li><strong>Team projects</strong> where one compromised settings write rides along in git and waits for the next PHP (or other) validation trigger on each machine.</li>
         <li><strong>Agent-assisted onboarding</strong> (“please follow my codebase file named main.py”) that causes the model to create config as part of being helpful.</li>
+        <li><strong>Antigravity-first workflows</strong> where the IDE is the agent — more tool use, more writes, more trust that HITL will catch the scary ones.</li>
       </ul>
 
       <p>
@@ -404,6 +549,10 @@ flowchart TD
       </p>
 
       <p>
+        <strong>Vibe coding does not ship boundaries.</strong> Shipping an agent-first IDE without OS-faithful path policy is how “I love that journey for you” becomes a process spawn. Security stays a continuous process — especially when the product’s job is to keep saying yes to tool calls.
+      </p>
+
+      <p>
         <strong>Read the regression tests.</strong> When a suite starts asserting <code>settings.JSON</code>, <code>.VSCODE</code>, trailing dots, and <code>::$DATA</code>, someone already lost that argument with an attacker.
       </p>
 
@@ -416,10 +565,11 @@ flowchart TD
         <li>Keep an explicit sensitive-path policy separate from “is inside workspace.”</li>
         <li>Default-deny or always-ask for <code>.vscode</code>, <code>.git</code>, env files, and any setting that can name a binary.</li>
         <li>Don't confuse “the user is chatting with the agent” with “the user approved this write.”</li>
+        <li>Assume prompt injection will happen; design so a helpful write still cannot skip HITL on capability files.</li>
       </ul>
 
       <p>
-        On to the next one.
+        Antigravity can go rogue. The fix is not vibes. It’s policy that matches the OS.
       </p>
 
       <div class="tags">
@@ -432,6 +582,7 @@ flowchart TD
         <span>agentic-misalignment</span>
         <span>agi-safety</span>
         <span>classifiers</span>
+        <span>vibe-coding</span>
       </div>
     </article>
   </main>
