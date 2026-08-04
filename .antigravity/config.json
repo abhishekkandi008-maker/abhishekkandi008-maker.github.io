@@ -1,0 +1,36 @@
+{
+  "defaultProvider": "cybersecqwen-local",
+  "providers": {
+    "cybersecqwen-local": {
+      "type": "openai-compatible",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "models": {
+        "default": "cybersecqwen-4b",
+        "fast": "cybersecqwen-4b",
+        "deep": "cybersecqwen-4b"
+      },
+      "requestTimeoutMs": 300000,
+      "streamReadTimeoutMs": 120000
+    }
+  },
+  "llm_providers": [
+    {
+      "name": "cybersecqwen-local",
+      "type": "openai_compatible",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama",
+      "default_model": "cybersecqwen-4b",
+      "requestTimeoutMs": 300000,
+      "streamReadTimeoutMs": 120000
+    }
+  ],
+  "agents": {
+    "default": {
+      "provider": "cybersecqwen-local",
+      "model": "default",
+      "temperature": 0.3,
+      "maxTokens": 2048
+    }
+  }
+}
