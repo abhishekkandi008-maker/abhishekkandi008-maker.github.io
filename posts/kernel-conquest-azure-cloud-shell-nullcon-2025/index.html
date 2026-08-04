@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kernel Conquest: Root Access in Azure Cloud Shell via Netfilter UAF</title>
+  <meta name="description" content="Nullcon Goa 2025 talk writeup: Use-After-Free and RCU exploitation in Linux Netfilter / nftables on Azure Cloud Shell — privilege escalation, container escape within a user session, and Microsoft mitigations. Co-presented with Alla Vamsi Krishna." />
+  <meta name="author" content="Abhishek Kandi" />
+  <meta property="og:title" content="Kernel Conquest: Root Access in Azure Cloud Shell via Netfilter UAF" />
+  <meta property="og:description" content="Open vSwitch integer manipulation + nftables Use-After-Free → root in Azure Cloud Shell. Nullcon Goa 2025." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css?v=5" />
+</head>
+<body>
+  <main class="wrap">
+    <article class="post">
+      <h1>Kernel Conquest: Root Access in Azure Cloud Shell via Netfilter UAF</h1>
+      <div class="meta">
+        <time datetime="2026-08-04">04 Aug, 2026</time>
+        <span class="sep">|</span>
+        <span class="tag">Nullcon Goa 2025</span>
+        <span class="tag">Kernel</span>
+        <span class="tag">Azure Cloud Shell</span>
+        <span class="tag">MSRC</span>
+      </div>
+
+      <p class="lede">
+        Azure Cloud Shell looks like a friendly browser terminal: authenticated, pre-configured, managed by Microsoft. What it does <em>not</em> give you by default is root. At <a href="https://nullcon.net/talk/kernel-conquest-breaking-boundaries-and-demystifying-kernel-su-for-root-access-in-azure-cloud-shell/">Nullcon Goa 2025</a>, Alla Vamsi Krishna and I showed how kernel bugs in that environment turned “unprivileged Cloud Shell user” into a root shell — and what that does (and does not) mean for multi-tenant cloud isolation.
+      </p>
+
+      <p>
+        Full session recording:
+        <a href="https://www.youtube.com/watch?v=P80azJb95V8">Nullcon Goa 2025 — Kernel Conquest on YouTube</a>.
+      </p>
+
+      <div class="callout">
+        <div class="label">Disclosure</div>
+        <p style="margin:0">
+          Both issues were reported to Microsoft (MSRC), fixed with an updated kernel and hardened Cloud Shell controls, and presented publicly after mitigation. This post summarizes the talk; it is not an exploit recipe.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Speakers &amp; setting</h2>
+
+      <p>
+        <strong>Alla Vamsi Krishna</strong> (Indian Institute of Science, Bengaluru) and <strong>Kandi Abhishek Reddy</strong> (Nokia) co-presented at Nullcon Goa 2025 (talk date ~2 March 2025). The research sits at the intersection of cloud security, Linux kernel exploitation, and bug bounty / MSRC coordination.
+      </p>
+
+      <p>
+        The practical prompt was almost mundane: Cloud Shell would not let us install packages without root. Bring-your-own tooling, no local VM handy — so the question became: <em>can we break into root inside this managed shell?</em>
+      </p>
+
+      <hr />
+
+      <h2>What Azure Cloud Shell actually is</h2>
+
+      <p>
+        Azure Cloud Shell is an interactive, browser-accessible, authenticated terminal for managing Azure resources. Sessions are short-lived (on the order of ~20 minutes of inactivity before cleanup), filesystem state you care about belongs on the mounted cloud drive, and the runtime is Microsoft’s Azure Linux–based container stack — not a full VM you own end-to-end.
+      </p>
+
+      <p>
+        Important distinctions from the talk:
+      </p>
+
+      <ul>
+        <li><strong>Container ≠ VM.</strong> A container shares the host kernel; a VM owns its own. Escaping a container is about host privilege, not inventing a new machine.</li>
+        <li><strong>No root by design (pre- and post-hardening).</strong> Cloud Shell runs unprivileged. <code>sudo -l</code> after the fix makes the “no new privileges” posture explicit.</li>
+        <li><strong>Limited egress.</strong> The Cloud Shell container typically has no useful outbound network for the attacker’s comfort — exploitation has to work in that constrained environment.</li>
+        <li><strong>Single-tenant hypervisor boundary.</strong> After disclosure, MSRC guidance emphasized isolated VMs per instance, non-reused VMs, and user data stored outside the container so a container escape does not become cross-tenant theft by default.</li>
+      </ul>
+
+      <div class="insight">
+        <div class="label">Boundary model</div>
+        <p>
+          A container is not a hard security boundary. Hypervisor / single-tenant isolation is. Getting root (or escaping into the host of <em>your</em> Cloud Shell VM) escalates power <strong>inside your session</strong>; it does not automatically mean reading another tenant’s shell. Cross-tenant still needs something else — open surfaces, Hyper-V escapes, shared state — which is a different research problem.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Two bugs, one goal: elevate inside Cloud Shell</h2>
+
+      <p>
+        We reported two kernel-facing issues through MSRC:
+      </p>
+
+      <div class="paper-grid">
+        <div class="paper-card">
+          <h3>1. Open vSwitch integer manipulation</h3>
+          <div class="cite">Severity: Important · Impact: Elevation of Privilege</div>
+          <p>
+            Integer / bounds manipulation in the Open vSwitch kernel module path that could be steered into out-of-bounds privilege escalation inside the Cloud Shell environment.
+          </p>
+        </div>
+        <div class="paper-card">
+          <h3>2. nftables / Netfilter Use-After-Free</h3>
+          <div class="cite">Severity: Moderate · Impact: Unauthorized access / control</div>
+          <p>
+            A dangling pointer inside a Netfilter / nftables transaction — improper reference counting across prepare / commit / release — yielding a classic UAF, with demo paths that leaked heap / helped KASLR bypass before a root shell.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        Affected context called out in the talk abstract: Azure Cloud Shell on kernels in the
+        <code>5.10.102.2-microsoft-standard</code> line and related builds prior to the 6.9-era fixes Microsoft shipped for the platform.
+      </p>
+
+      <hr />
+
+      <h2>Netfilter primer (why this code path matters)</h2>
+
+      <p>
+        Netfilter is the Linux packet-filtering framework behind firewalling, NAT, and classification. Hooks sit at well-defined points in the networking stack (PREROUTING, INPUT, FORWARD, OUTPUT, POSTROUTING). Userspace configures tables, chains, and rules; the kernel implements them.
+      </p>
+
+      <p>
+        nftables talks to the kernel over netlink-style IPC. From userspace you batch operations — new table, new chain, new rule, delete rule — into a <strong>transaction</strong>. That transaction has phases. Get reference counting wrong across those phases and you get use-after-free, not a polite error.
+      </p>
+
+      <pre class="mermaid">
+flowchart LR
+    U[Userspace nftables / netlink batch] --> P[Prepare]
+    P --> C[Commit]
+    C --> R[Release / destroy]
+    P --> |"scan objects, bind sets/chains"| P
+    C --> |"activate new, deactivate old, RCU"| C
+    R --> |"free, drop refs"| R
+    C --> |"bad refcount / failed unbind"| UAF[Dangling pointer → UAF]
+    style UAF fill:#ff6b6b,color:#000
+      </pre>
+
+      <hr />
+
+      <h2>Root cause: improper reference counting in the transaction</h2>
+
+      <p>
+        The vulnerable story is about a set <code>S</code> and a chain <code>C</code> in the network stack: if an element expires or is unbound <em>before</em> the reference count is updated correctly, you get invalid memory access — a Use-After-Free during abort / error paths.
+      </p>
+
+      <h3>Prepare</h3>
+      <p>
+        The kernel walks the batch, allocates structures, validates inputs, and stages new objects (tables, chains, sets). Objects move onto a pending / commit list. Activation flags and object state matter here: you are building a world that does not fully exist yet.
+      </p>
+
+      <h3>Commit</h3>
+      <p>
+        Walk the commit list. Create / update / delete under RCU (Read-Copy-Update). Activate new entries; deactivate old ones. Error handling must keep reference counts coherent. The dangerous code paths sit in Netfilter’s API layer (talking around <code>nf_tables</code> transaction helpers that deactivate / unbind sets): if prepare fails partway, deactivation can decrement refs without leaving objects in a safe state.
+      </p>
+
+      <h3>Release</h3>
+      <p>
+        Destroy the transaction, free resources, walk the commit list again, drop references. If counts go wrong — including paths that effectively allow invalid / negative-style states without proper validation — memory can be freed while something still holds a dangling pointer.
+      </p>
+
+      <div class="callout danger">
+        <div class="label">The mismatch</div>
+        <p style="margin:0">
+          Transaction abort / prepare-error paths must undo binds as carefully as the happy path creates them.<br />
+          Miss a deactivate / unbind on an anonymous set (or similar), free the object, keep a pointer → UAF.<br />
+          From there: heap spray / reclaim, info leak, KASLR defeat, escalate.
+        </p>
+      </div>
+
+      <p>
+        Conceptually, the failing pattern is: <strong>flag-driven cleanup that does not run (or runs incompletely) when <code>nft_trans_prepare</code>-style paths error out</strong>, leaving bindings and refcounts inconsistent with what the destroy path assumes.
+      </p>
+
+      <hr />
+
+      <h2>Exploit chain (high level)</h2>
+
+      <pre class="mermaid">
+flowchart TD
+    A[Batch init: NF hooks + transaction structures] --> B[Set allocation]
+    B --> C[Associate set with tables / chains]
+    C --> D[Trigger failed / partial transaction path]
+    D --> E[Set not properly deactivated]
+    E --> F[Memory freed → dangling pointer]
+    F --> G[UAF: heap leak / KASLR assist]
+    G --> H[Privilege escalation → root shell]
+    O[Open vSwitch integer path] --> H
+    style E fill:#ff6b6b,color:#000
+    style F fill:#ff6b6b,color:#000
+    style G fill:#ff6b6b,color:#000
+    style H fill:#ff6b6b,color:#000
+      </pre>
+
+      <p>
+        In the recorded demo (pre-fix Cloud Shell): start as a normal user (<code>id</code>), run the PoC against the then-current Microsoft standard kernel (~5.10.102 line), land a root shell. Separately, the nftables UAF path showed heap address leakage useful for defeating KASLR before the same end state: root.
+      </p>
+
+      <p>
+        Success rate on the kernels we cared about was imperfect but real (roughly “7/10” in Q&amp;A) — version-sensitive, like most kernel UAFs.
+      </p>
+
+      <hr />
+
+      <h2>Impact: scary for the session, constrained for the fleet</h2>
+
+      <p>
+        Successful exploitation meant:
+      </p>
+
+      <ul>
+        <li>Elevated privileges inside the user’s own Cloud Shell environment</li>
+        <li>Potential container escape <strong>within that user’s session</strong></li>
+        <li>Broader access to cloud resources <em>already reachable under that user’s identity / session</em></li>
+      </ul>
+
+      <p>
+        What it did <strong>not</strong> automatically mean (by Microsoft’s post-fix architecture story):
+      </p>
+
+      <ul>
+        <li>Cross-tenant compromise via a shared kernel on a shared VM — Cloud Shell moved to / emphasized non-shared, isolated hypervisor VMs</li>
+        <li>Automatic access to other users’ session data stored outside the container</li>
+      </ul>
+
+      <blockquote>
+        <p>
+          Cloud Shell is a single-user execution environment. Elevate to root and you still only own <em>your</em> session’s resources — by design, after the hardening pass. Whether every adjacent control (capabilities, open ports, Hyper-V) is forever airtight is a separate, ongoing research question; we called that out as future work, not as a finished cross-tenant exploit.
+        </p>
+      </blockquote>
+
+      <hr />
+
+      <h2>What Microsoft changed</h2>
+
+      <p>
+        After CVD with MSRC:
+      </p>
+
+      <ul>
+        <li><strong>Updated kernel</strong> on Cloud Shell (demo time: latest builds; we noted a mid-January-era refresh in the talk)</li>
+        <li><strong>Privilege posture:</strong> no new privileges / no casual <code>sudo</code> path to root for the interactive user</li>
+        <li><strong>Isolation messaging:</strong> container escapes restricted so one user session does not compromise another; VMs not reused in a way that would expose leftover user data</li>
+        <li><strong>Capability / hardening flags</strong> on the container profile (some of which remain interesting research surfaces)</li>
+      </ul>
+
+      <p>
+        By the time we wanted a live demo on stage, the public Cloud Shell we hit was already patched — a recorded PoC from the vulnerable window carried the proof.
+      </p>
+
+      <hr />
+
+      <h2>Takeaways</h2>
+
+      <p>
+        <strong>Managed shells still run real kernels.</strong> “Browser terminal” marketing does not remove nftables, Open vSwitch, or RCU. If userspace can drive those APIs, kernel bug classes follow.
+      </p>
+
+      <p>
+        <strong>Isolation layers are layered lies until proven otherwise.</strong> Namespaces, capabilities, “no root,” even Hyper-V — each is a boundary with a different failure mode. Containers are especially easy to over-trust.
+      </p>
+
+      <p>
+        <strong>Reference counting on abort paths is where adults lose.</strong> Happy-path activate/deactivate is tested. Prepare-error + anonymous-set cleanup is where dangling pointers hide.
+      </p>
+
+      <p>
+        <strong>Impact statements matter as much as CVSS.</strong> Root in your own Cloud Shell is serious for that user and for anything the session can already touch. It is not the same claim as “broke Azure multi-tenancy.” Say the first clearly; don’t inflate into the second without a second exploit.
+      </p>
+
+      <p>
+        <strong>Security is a team sport.</strong> CVD with MSRC, public talk after fix, and honest Q&amp;A about what still needs research beat silent hoarding or overclaiming.
+      </p>
+
+      <hr />
+
+      <h2>Resources</h2>
+
+      <ul>
+        <li><a href="https://www.youtube.com/watch?v=P80azJb95V8">Talk video — Nullcon Goa 2025</a></li>
+        <li><a href="https://nullcon.net/talk/kernel-conquest-breaking-boundaries-and-demystifying-kernel-su-for-root-access-in-azure-cloud-shell/">Nullcon talk page</a></li>
+        <li><a href="https://hackingarchivesofindia.com/hacker/alla_vamsi_krishna/nullcon_2025/">Hackers of India archive entry</a></li>
+      </ul>
+
+      <p>
+        Co-presented with Alla Vamsi Krishna. On to the next boundary.
+      </p>
+
+      <div class="tags">
+        <span>kernel</span>
+        <span>netfilter</span>
+        <span>nftables</span>
+        <span>use-after-free</span>
+        <span>azure</span>
+        <span>cloud-shell</span>
+        <span>container-escape</span>
+        <span>msrc</span>
+        <span>nullcon</span>
+        <span>privilege-escalation</span>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>Responsible disclosure</span>
+    </div>
+  </footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        darkMode: true,
+        background: "#0d1117",
+        primaryColor: "#161b22",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#58a6ff",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
+        fontFamily: "IBM Plex Sans, sans-serif",
+        fontSize: "15px",
+      },
+    });
+    await mermaid.run({ querySelector: ".mermaid" });
+  </script>
+</body>
+</html>
