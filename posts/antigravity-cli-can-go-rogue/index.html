@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Antigravity CLI Can Go Rogue: Prompt Injection to RCE</title>
+  <meta name="description" content="Google Antigravity CLI can go rogue: vibe-coded agents with zero boundaries, a case-blind HITL bypass, silent settings poison, and host code execution. Same attack chain as the Google VRP Antigravity report — elaborated end to end." />
+  <meta name="author" content="Abhishek Kandi" />
+  <meta property="og:title" content="Antigravity CLI Can Go Rogue: Prompt Injection to RCE" />
+  <meta property="og:description" content="Prompt injection → case-blind HITL miss → poisoned settings → RCE. Why Antigravity CLI’s ‘helpful’ vibes become host compromise." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css?v=5" />
+</head>
+<body>
+  <main class="wrap">
+    <article class="post">
+      <h1>Antigravity CLI Can Go Rogue: Prompt Injection to RCE</h1>
+      <div class="meta">
+        <time datetime="2026-08-04">04 Aug, 2026</time>
+        <span class="sep">|</span>
+        <span class="tag">Antigravity CLI</span>
+        <span class="tag">RCE</span>
+        <span class="tag">Prompt Injection</span>
+        <span class="tag">Google VRP $$$$$</span>
+      </div>
+
+      <p class="lede">
+        Google Antigravity CLI was built entirely using vibe coding — <em>probably</em>. Write prompts, drink iced coffee, pray to the AI. Just kidding. Mostly.
+        As a developer I know security is a continuous process, not a one-time task, and it is always a major pain point.
+        Because when the “developer” is an LLM with tools, nobody drew real boundaries.
+        If you tell it to float your laptop, it will try.
+        If an AI tells it to delete your hard drive, it says <em>“I love that journey for you!”</em> — and deletes everything.
+      </p>
+
+      <p>
+        That line is from my
+        <a href="https://www.linkedin.com/posts/kandiabhishek08_google-antigravity-cli-was-built-entirely-activity-7463117497454469120-R1hu">LinkedIn post on Antigravity CLI</a>.
+        This blog is the exploit that made the joke stop being a joke:
+        the same attack chain I reported through Google’s AI VRP, reproduced end-to-end against
+        <a href="https://antigravity.google">Google Antigravity</a> —
+        <strong>prompt injection → case-blind bypass of a sensitive-file HITL check → silent settings write → extension-triggered RCE</strong>.
+      </p>
+
+      <div class="callout">
+        <div class="label">Note</div>
+        <p style="margin:0">
+          The exploit prompt is <strong>not disclosed</strong> here. Sibling deep-dive:
+          <a href="../case-insensitivity-bypass-gemini-vscode-agents/">When the Agent Went Rogue</a>.
+          Related CLI policy failure:
+          <a href="../eval-injection-bypass-gemini-cli/">Gemini CLI eval injection</a>.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>What “going rogue” means for Antigravity CLI</h2>
+
+      <p>
+        Antigravity is an agent-first surface: chat is not the product; <em>doing things</em> is.
+        CLI / agent tooling that can create files, edit config, and drive the IDE inherits your privileges.
+        “Going rogue” in this research was not a cartoon evil monologue.
+        It was the agent quietly rewriting the one file that decides which binaries your editor will run —
+        a write that was supposed to require your explicit approval.
+      </p>
+
+      <div class="insight">
+        <div class="label">Zero boundaries, in product form</div>
+        <p>
+          Vibe coding ships capability first. Safety is a glob, a classifier, a <code>require_confirmation</code> flag.
+          Miss one case fold on Windows and those boundaries evaporate.
+          The model does not need to defeat the safety UI if the safety UI never schedules.
+        </p>
+      </div>
+
+      <p>
+        On Windows, <code>settings.json</code> and <code>settings.JSON</code> are the same file.
+        Antigravity / Gemini’s sensitive-path gate treated them as different.
+        Injected instructions steered a write at the wrong casing → auto-approve → real settings poisoned → next IDE action spawns attacker-chosen code.
+      </p>
+
+      <hr />
+
+      <h2>The attack chain (same exploit, fully walked)</h2>
+
+      <pre class="mermaid">
+flowchart TD
+    P0[0 · Plant lure in repo / chat / onboarding] --> P1[1 · Dev opens Antigravity / Gemini agent]
+    P1 --> P2[2 · Injected prompt steers a settings write]
+    P2 --> P3[3 · Path casing misses case-sensitive HITL glob]
+    P3 --> P4[4 · Silent write: real settings.json poisoned]
+    P4 --> P5[5 · IDE / extension spawns executablePath]
+    P5 --> P6[6 · Persistence after the agent leaves]
+    style P3 fill:#ff6b6b,color:#000
+    style P4 fill:#ff6b6b,color:#000
+    style P5 fill:#ff6b6b,color:#000
+    style P6 fill:#ffa657,color:#000
+      </pre>
+
+      <h3>0 — Delivery: poison the context</h3>
+
+      <p>
+        You do not jailbreak Antigravity into confessing crimes.
+        You get it to <em>read attacker-controlled instructions</em> while it holds write tools.
+      </p>
+
+      <ul>
+        <li>Shared git repo with README / setup notes the agent is eager to “follow”</li>
+        <li>Ticket, paste, or chat that looks like onboarding help</li>
+        <li>Any social pattern where being helpful means creating editor config without a human reading every path</li>
+      </ul>
+
+      <p>
+        Prompt injection is delivery. The exploit is privilege past human controls.
+      </p>
+
+      <h3>1 — The CLI / agent already has your privileges</h3>
+
+      <p>
+        Developer opens the workspace in Antigravity (or Gemini-backed VS Code agent workflows that share the same failure mode).
+        Ordinary source edits can auto-approve.
+        Sensitive trees — <code>.vscode</code>, <code>.env</code>, <code>.git</code> — are supposed to hit HITL.
+        That split <em>is</em> the disk-mutation security model.
+      </p>
+
+      <h3>2 — Steer config, not malware.exe</h3>
+
+      <p>
+        The injected instructions do not need to say “run calc.”
+        They need the agent to create or edit workspace settings — the file that names validators, tasks, language-server paths, process images.
+        Config is code with extra steps.
+      </p>
+
+      <pre><code>{
+  "php.validate.executablePath": "C:\\windows\\system32\\calc.exe"
+}</code></pre>
+
+      <p>
+        Calculator is the demo. Real attacks point that sink at a loader, reverse shell, or quiet implant.
+        Same family: tasks that run shells, MCP stdio commands, any setting that names a binary.
+      </p>
+
+      <h3>3 — The bypass: <code>settings.JSON</code> is not sensitive (to the checker)</h3>
+
+      <p>
+        Conceptual gate:
+      </p>
+
+      <pre><code>const ALWAYS_CHECKED_EDIT_PATTERNS: Readonly&lt;Record&lt;string, boolean&gt;&gt; = {
+  '**/.vscode/*.json': false,  // false → require manual approval
+};</code></pre>
+
+      <p>
+        Match → Confirm. Miss → auto-approve.
+        On case-sensitive filesystems this often works.
+        On Windows it does not: the OS folds case; the glob does not.
+      </p>
+
+      <div class="callout danger">
+        <div class="label">The mismatch</div>
+        <p style="margin:0">
+          Security control: case-sensitive string / glob match.<br />
+          Operating system: case-insensitive path resolution.<br />
+          Attacker: write <code>.vscode/settings.JSON</code> or <code>.VSCODE/…</code>; OS updates real <code>settings.json</code>; HITL never fires.
+        </p>
+      </div>
+
+      <p>
+        That is Antigravity CLI going rogue in the LinkedIn sense:
+        it does not argue with you.
+        It cheerfully completes a “setup” write the policy already misclassified as safe.
+        <em>I love that journey for you.</em>
+      </p>
+
+      <pre class="mermaid">
+flowchart TD
+    A[Injected prompt / poisoned repo] --> B[Agent proposes settings write]
+    B --> C{Case-sensitive glob?}
+    C -->|settings.json| D[HITL: Confirm]
+    C -->|settings.JSON / .VSCODE| E[Auto-approve]
+    D --> F[User can refuse]
+    E --> G[Windows writes real settings.json]
+    G --> H[Config poisoned]
+    H --> I[Validate / save → RCE]
+    style E fill:#ff6b6b,color:#000
+    style G fill:#ff6b6b,color:#000
+    style H fill:#ff6b6b,color:#000
+    style I fill:#ff6b6b,color:#000
+    style D fill:#51cf66,color:#000
+    style F fill:#51cf66,color:#000
+      </pre>
+
+      <h3>4 — Silent poison on disk</h3>
+
+      <p>
+        The write lands. Windows folds the name.
+        Real workspace settings now contain attacker-chosen keys.
+        No human clicked Confirm.
+        The chat can look like a successful onboarding turn.
+      </p>
+
+      <h3>5 — Ordinary IDE behavior finishes the RCE</h3>
+
+      <p>
+        Open or save a PHP file (or whatever triggers the configured validator).
+        The extension spawns <code>executablePath</code>.
+        No separate “run this binary” tool approval.
+        Config → process spawn → code execution as the user.
+      </p>
+
+      <pre class="mermaid">
+sequenceDiagram
+    participant Attacker
+    participant Repo as Poisoned repo / prompt
+    participant CLI as Antigravity / Gemini agent
+    participant Gate as Permission gate
+    participant FS as Windows filesystem
+    participant Ext as PHP / IDE extension
+
+    Attacker->>Repo: Plant lure / injected instructions
+    Repo->>CLI: Dev opens workspace + chats
+    CLI->>Gate: writeFile(.vscode/settings.JSON)
+    Note over Gate: case-sensitive glob miss
+    Gate-->>CLI: auto-approve (no HITL)
+    CLI->>FS: Persist php.validate.executablePath
+    Note over FS: settings.JSON ≡ settings.json
+    Ext->>FS: Read executablePath
+    Ext->>Ext: spawn(configured binary)
+    Note over Ext: RCE as the user
+      </pre>
+
+      <h3>6 — Persistence after the agent leaves</h3>
+
+      <p>
+        Once settings are rewritten, the malicious session can end.
+        The next ordinary IDE action — on this machine or another that synced the same poisoned config — finishes the job again.
+        Blast radius: shared repos, team projects, agent-assisted onboarding — not unauthenticated remote entry.
+      </p>
+
+      <div class="callout">
+        <div class="label">Severity nuance</div>
+        <p style="margin:0">
+          Local chain + user interaction (developer uses the agent / opens the workspace).
+          Severity is the silent bypass of the control that was supposed to make that interaction safe.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Why vibe coding makes this worse</h2>
+
+      <p>
+        Antigravity CLI’s product bet is speed: an agent that ships work.
+        Vibe-coded stacks optimize for “the model said yes and the tool ran.”
+        Boundaries are afterthoughts — globs, allowlists, remembered approvals — until an attacker proves they are stringly typed.
+      </p>
+
+      <div class="paper-grid">
+        <div class="paper-card">
+          <h3>What the agent thought</h3>
+          <div class="cite">Helpful CLI turn</div>
+          <p>
+            “Create settings so PHP validation works.” In-character. Looks like setup, not exploitation.
+          </p>
+        </div>
+        <div class="paper-card">
+          <h3>What the host did</h3>
+          <div class="cite">Windows + IDE</div>
+          <p>
+            Wrote real <code>.vscode/settings.json</code>, skipped HITL, left a process-spawn sink for the next editor action.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        Security as a continuous process means: every new tool, every new path policy, every “approve once” memory is another place Antigravity can go rogue without sounding rogue.
+        Offensive testing has to be part of every agent build — exactly what the LinkedIn comments called out.
+      </p>
+
+      <hr />
+
+      <h2>Containment ≠ sensitive-path policy</h2>
+
+      <p>
+        Digging into Gemini CLI / core path checks made the pattern wider than one glob.
+        “Is this path under the workspace root?” is not “may we silently mutate this capability file?”
+      </p>
+
+      <pre><code>// Conceptual — containment alone is not policy
+private isPathWithinRoot(pathToCheck: string, rootDirectory: string): boolean {
+  const relative = path.relative(rootDirectory, pathToCheck);
+  return (
+    !relative.startsWith(`..${path.sep}`) &&
+    relative !== '..' &&
+    !path.isAbsolute(relative)
+  );
+}</code></pre>
+
+      <p>
+        On Windows, oddly cased <code>.GIT</code> / <code>.vscode</code> still look “inside.”
+        Sensitive segments need case-insensitive normalization (plus trailing-dot / ADS awareness) before ASK / DENY — not equality on the string the model typed.
+      </p>
+
+      <hr />
+
+      <h2>What the fix scar tissue looks like</h2>
+
+      <p>
+        After remediation, Gemini CLI-style safety normalizes segments before policy:
+      </p>
+
+      <pre><code>const clean = trimTrailingSpacesAndDots(
+  segment.split(':')[0],
+).toLowerCase();
+
+if (clean === '.git' || clean === '.env' || clean === 'node_modules') {
+  hasBlockedSegment = true;
+}
+if (clean === '.vscode') {
+  isVscodePath = true;  // → ASK_USER
+}</code></pre>
+
+      <p>
+        Regression cases that used to be auto-approve:
+      </p>
+
+      <pre><code>path.join(mockCwd, '.vscode', 'settings.JSON'),
+path.join(mockCwd, '.VSCODE', 'settings.json'),
+path.join(mockCwd, '.vscode ', 'settings.json'),
+path.join(mockCwd, '.vscode::$DATA', 'settings.json'),</code></pre>
+
+      <pre class="mermaid">
+flowchart LR
+    A[Raw path from tool args] --> B[Resolve / canonicalize]
+    B --> C[Split segments]
+    C --> D[trim + strip ADS + toLowerCase]
+    D --> E{Segment policy}
+    E -->|.git / .env / node_modules| F[DENY]
+    E -->|.vscode| G[ASK_USER]
+    E -->|other in-workspace| H[ALLOW]
+    style F fill:#ff6b6b,color:#000
+    style G fill:#ffd43b,color:#000
+    style H fill:#51cf66,color:#000
+      </pre>
+
+      <hr />
+
+      <h2>Who gets hit</h2>
+
+      <ul>
+        <li><strong>Clone / open a poisoned repo</strong> the Antigravity agent is asked to set up</li>
+        <li><strong>Team projects</strong> where poisoned settings ride along in git</li>
+        <li><strong>Agent-assisted onboarding</strong> (“follow my codebase / main.py”)</li>
+        <li><strong>Antigravity-first workflows</strong> — more tool use, more trust that HITL will catch the scary writes</li>
+      </ul>
+
+      <p>
+        Persistence is the quiet part. The agent can leave. The next validate/save finishes RCE.
+      </p>
+
+      <hr />
+
+      <h2>Disclosure (same VRP thread family)</h2>
+
+      <ul>
+        <li><strong>7 Nov 2025</strong> — Reported to Google; Assigned (P2)</li>
+        <li><strong>15 Nov 2025</strong> — Accepted; severity S2</li>
+        <li><strong>3 Mar 2026</strong> — Reward $$$$$</li>
+        <li><strong>22 Jul 2026</strong> — Marked Fixed</li>
+        <li><strong>24 Jul 2026</strong> — Patch bypassed; cycle continued</li>
+      </ul>
+
+      <p>
+        Antigravity follow-ups, panel appeals, and post-fix bypass work stayed active with Cloud VRP.
+        Credit to that engagement — and reminder that “Fixed” on an agent product is a checkpoint, not a vibe.
+      </p>
+
+      <hr />
+
+      <h2>Takeaways</h2>
+
+      <p>
+        <strong>Antigravity CLI can go rogue</strong> without sounding evil — silent capability-file writes are enough.
+      </p>
+
+      <p>
+        <strong>Match policy to the OS</strong>, not to the string the LLM typed. Case, ADS, trailing dots.
+      </p>
+
+      <p>
+        <strong>HITL that never schedules is worse than no HITL</strong> — operators think they are protected.
+      </p>
+
+      <p>
+        <strong>Config is code.</strong> Treat silent <code>settings.json</code> mutation like silent <code>.git/hooks</code> writes.
+      </p>
+
+      <p>
+        <strong>Vibe coding does not ship boundaries.</strong> Security stays continuous: offensive tests on every agent build, system policy that still works when the model is “helpful.”
+      </p>
+
+      <p>
+        <strong>Prompt injection delivers; policy bugs exploit.</strong> Closing the case fold closed Antigravity / VS Code settings RCE and related sensitive-dir stories at one choke point.
+      </p>
+
+      <hr />
+
+      <h2>If you ship an agent CLI</h2>
+
+      <ul>
+        <li>Normalize paths before every allow / deny / ask decision</li>
+        <li>Separate “inside workspace” from “sensitive path”</li>
+        <li>Always-ask (or deny) for <code>.vscode</code>, <code>.git</code>, env files, and any setting that can name a binary</li>
+        <li>Never treat “user is chatting” as “user approved this write”</li>
+        <li>Assume prompt injection; design so helpful setup still cannot skip HITL on capability files</li>
+      </ul>
+
+      <p>
+        Antigravity CLI can go rogue.
+        The fix is not iced coffee and better prompts.
+        It’s policy that matches the filesystem — and a process that keeps proving it.
+      </p>
+
+      <div class="tags">
+        <span>antigravity</span>
+        <span>antigravity-cli</span>
+        <span>gemini</span>
+        <span>prompt-injection</span>
+        <span>rce</span>
+        <span>hitl</span>
+        <span>vibe-coding</span>
+        <span>ai-vrp</span>
+        <span>agentic-misalignment</span>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>Responsible disclosure</span>
+    </div>
+  </footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        darkMode: true,
+        background: "#0d1117",
+        primaryColor: "#161b22",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#58a6ff",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
+        fontFamily: "IBM Plex Sans, sans-serif",
+        fontSize: "15px",
+      },
+    });
+    await mermaid.run({ querySelector: ".mermaid" });
+  </script>
+</body>
+</html>
