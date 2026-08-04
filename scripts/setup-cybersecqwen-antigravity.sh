@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot: install Ollama + CyberSecQwen-4B and wire Antigravity local provider.
+# One-shot: install Ollama + CyberSecQwen-4B and wire Antigravity + Cursor.
 set -euo pipefail
 
 MODEL_SRC="hf.co/ree2raz/CyberSecQwen-4B-GGUF:Q4_K_M"
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SETUP_DIR="${HOME}/.antigravity-cybersecqwen"
 
-echo "==> CyberSecQwen-4B × Antigravity setup"
+echo "==> CyberSecQwen-4B × Antigravity + Cursor setup"
 
 if ! command -v ollama >/dev/null 2>&1; then
   echo "==> Installing Ollama"
@@ -34,12 +34,15 @@ fi
 mkdir -p "${SETUP_DIR}" "${HOME}/.config/antigravity" "${HOME}/.gemini/antigravity-cli"
 
 # Keep Ollama alive; bind localhost by default (override with OLLAMA_HOST=0.0.0.0:11434)
+# OLLAMA_ORIGINS=* lets Cursor Desktop call the OpenAI-compatible endpoint without CORS failures.
 export OLLAMA_HOST="${OLLAMA_HOST_BIND}"
 export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-3h}"
+export OLLAMA_ORIGINS="${OLLAMA_ORIGINS:-*}"
 
 if ! curl -sf "http://${OLLAMA_HOST_BIND}/api/tags" >/dev/null 2>&1; then
   echo "==> Starting ollama serve on ${OLLAMA_HOST_BIND}"
-  nohup ollama serve >"${SETUP_DIR}/ollama.log" 2>&1 &
+  nohup env OLLAMA_HOST="${OLLAMA_HOST_BIND}" OLLAMA_ORIGINS="${OLLAMA_ORIGINS}" OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE}" \
+    ollama serve >"${SETUP_DIR}/ollama.log" 2>&1 &
   echo $! >"${SETUP_DIR}/ollama.pid"
   for _ in $(seq 1 30); do
     curl -sf "http://${OLLAMA_HOST_BIND}/api/tags" >/dev/null 2>&1 && break
@@ -146,6 +149,78 @@ if [[ -d "${REPO_ROOT}/.antigravity" ]]; then
   cp "${HOME}/.config/antigravity/config.json" "${REPO_ROOT}/.antigravity/config.json"
 fi
 
+# Cursor MCP (project + global) so agents can call CyberSecQwen via tools
+mkdir -p "${HOME}/.cursor" "${REPO_ROOT}/.cursor"
+chmod +x "${SCRIPT_DIR}/cybersecqwen_mcp_server.py"
+cat >"${REPO_ROOT}/.cursor/mcp.json" <<EOF
+{
+  "mcpServers": {
+    "cybersecqwen-4b": {
+      "command": "python3",
+      "args": ["${REPO_ROOT}/scripts/cybersecqwen_mcp_server.py"],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "CYBERSECQWEN_MODEL": "${MODEL_NAME}"
+      }
+    }
+  }
+}
+EOF
+cp "${REPO_ROOT}/.cursor/mcp.json" "${HOME}/.cursor/mcp.json"
+
+# Cursor Desktop User settings (OpenAI-compatible override for model picker)
+write_cursor_settings() {
+  local settings_file="$1"
+  mkdir -p "$(dirname "${settings_file}")"
+  if [[ -f "${settings_file}" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+      python3 - "${settings_file}" "${MODEL_NAME}" <<'PY'
+import json, sys
+path, model = sys.argv[1], sys.argv[2]
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+data["cursor.openai.apiKey"] = "ollama"
+data["cursor.openai.baseUrl"] = "http://localhost:11434/v1"
+data["cursor.general.enableCustomEndpoint"] = True
+data["cursor.general.customEndpoint"] = "http://localhost:11434/v1"
+data["cursor.general.customEndpointApiKey"] = "ollama"
+data["cursor.general.customEndpointModel"] = model
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+      echo "==> Updated Cursor settings: ${settings_file}"
+    else
+      echo "==> Existing ${settings_file} found — add OpenAI base URL override manually."
+    fi
+  else
+    cat >"${settings_file}" <<EOF
+{
+  "cursor.openai.apiKey": "ollama",
+  "cursor.openai.baseUrl": "http://localhost:11434/v1",
+  "cursor.general.enableCustomEndpoint": true,
+  "cursor.general.customEndpoint": "http://localhost:11434/v1",
+  "cursor.general.customEndpointApiKey": "ollama",
+  "cursor.general.customEndpointModel": "${MODEL_NAME}"
+}
+EOF
+    echo "==> Wrote Cursor settings: ${settings_file}"
+  fi
+}
+
+write_cursor_settings "${HOME}/.config/Cursor/User/settings.json"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  write_cursor_settings "${HOME}/Library/Application Support/Cursor/User/settings.json"
+fi
+if [[ -n "${APPDATA:-}" ]]; then
+  write_cursor_settings "${APPDATA}/Cursor/User/settings.json"
+fi
+
 echo "==> Smoke-testing OpenAI-compatible endpoint"
 curl -sf "http://${OLLAMA_HOST_BIND}/v1/chat/completions" \
   -H 'Content-Type: application/json' \
@@ -158,12 +233,20 @@ echo "Done."
 echo "  Model:     ${MODEL_NAME}"
 echo "  Endpoint:  http://localhost:11434/v1"
 echo "  API key:   ollama"
+echo "  Cursor MCP: cybersecqwen-4b (ask_cybersecqwen)"
 echo
 echo "In Antigravity UI (if config files are not auto-picked):"
 echo "  Settings → LLM / Custom Provider"
 echo "  Base URL: http://localhost:11434/v1"
 echo "  API Key:  ollama"
 echo "  Model:    ${MODEL_NAME}"
+echo
+echo "In Cursor Desktop:"
+echo "  1. Cursor Settings → Models → Add Model: ${MODEL_NAME}"
+echo "  2. Enable Override OpenAI Base URL: http://localhost:11434/v1"
+echo "  3. OpenAI API Key: ollama"
+echo "  4. Verify; leave only ${MODEL_NAME} enabled if verify fails"
+echo "  5. Restart Cursor so .cursor/mcp.json loads (Tools: ask_cybersecqwen)"
 echo
 echo "Keep Ollama running: ollama serve"
 ollama list | grep -E "NAME|${MODEL_NAME}|CyberSecQwen" || ollama list

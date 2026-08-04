@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cybersecqwen-4b": {
+      "command": "python3",
+      "args": ["/workspace/scripts/cybersecqwen_mcp_server.py"],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "CYBERSECQWEN_MODEL": "cybersecqwen-4b"
+      }
+    }
+  }
+}
