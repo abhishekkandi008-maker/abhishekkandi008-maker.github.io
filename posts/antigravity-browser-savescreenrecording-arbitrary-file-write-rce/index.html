@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arbitrary File Write to RCE in Antigravity Browser via SaveScreenRecording</title>
+  <meta name="description" content="Google VRP: Antigravity Chrome extension exposed SaveScreenRecording to any origin via externally_connectable all_urls — path traversal on filename produced arbitrary file write and a straight line to host RCE. Reported by Sudhanshu Rajbhar; $10,000." />
+  <meta name="author" content="Abhishek Kandi" />
+  <meta property="og:title" content="Arbitrary File Write to RCE in Antigravity Browser via SaveScreenRecording" />
+  <meta property="og:description" content="Any page in the Antigravity browser could message the extension, traverse out of the recordings directory, and write attacker-controlled bytes — persistence and RCE included." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/style.css?v=5" />
+</head>
+<body>
+  <main class="wrap">
+    <article class="post">
+      <h1>Arbitrary File Write to RCE in Antigravity Browser via SaveScreenRecording</h1>
+      <div class="meta">
+        <time datetime="2026-08-05">05 Aug, 2026</time>
+        <span class="sep">|</span>
+        <span class="tag">Google VRP $10,000</span>
+        <span class="tag">RCE</span>
+        <span class="tag">Antigravity Browser</span>
+        <span class="tag">Chrome Extension</span>
+      </div>
+
+      <p class="lede">
+        Antigravity’s agent-first IDE ships a browser. That browser ships a Chrome extension.
+        The extension shipped <code>externally_connectable: &lt;all_urls&gt;</code> and a
+        <code>SaveScreenRecording</code> action that took a attacker-chosen filename and raw bytes,
+        then asked the language server to write a file.
+        Path traversal turned “save this WebM” into “write wherever you want on the user’s profile” —
+        and from there into classic Windows persistence / code execution.
+      </p>
+
+      <p>
+        This post walks the Google VRP report filed by
+        <strong>Sudhanshu Rajbhar</strong> against the Antigravity browser extension:
+        triaged, accepted, fixed, and rewarded <strong>$10,000</strong>.
+        It sits next to the agent-side Antigravity chains on this site —
+        <a href="../case-insensitivity-bypass-gemini-vscode-agents/">When the Agent Went Rogue</a>
+        and
+        <a href="../antigravity-cli-can-go-rogue/">Antigravity CLI Can Go Rogue</a> —
+        as the complementary lesson: when the product opens a browser for the agent,
+        the extension trust boundary is part of the host compromise story.
+      </p>
+
+      <p>
+        The chain in one line:
+        <strong>attacker page in Antigravity browser → <code>chrome.runtime.sendMessage</code> →
+        <code>SaveScreenRecording</code> with path traversal → language-server arbitrary write →
+        startup / persistence RCE</strong>.
+      </p>
+
+      <div class="callout">
+        <div class="label">Credit &amp; disclosure</div>
+        <p style="margin:0">
+          Original report: Sudhanshu Rajbhar · Google VRP · Antigravity.
+          Timeline from the report: reported / triaged (21 Nov 2025) → accepted (27 Nov 2025) →
+          fixed (21 Dec 2025) → reward decided $10,000.
+          This writeup elaborates the already-fixed trust-boundary failure for the Antigravity series —
+          not a live exploit against current builds.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Why the Antigravity browser extension mattered</h2>
+
+      <p>
+        When you ask Antigravity to “open example.com,” it does not hand you a random Chromium profile
+        with no privileges. It launches the Antigravity browser with an extension that bridges the page
+        world to the local language server — screen recording, tab IDs, RPC proxies, the works.
+      </p>
+
+      <p>
+        That bridge is powerful on purpose. It is also a confused-deputy surface:
+        anything that can talk to the extension inherits a slice of host capability.
+        Chrome’s answer to “who may talk to my extension from a webpage?” is
+        <code>externally_connectable</code>.
+      </p>
+
+      <div class="insight">
+        <div class="label">The config that caught the reporter’s eye</div>
+        <p>
+          <code>externally_connectable.matches</code> was set to <code>&lt;all_urls&gt;</code>.
+          Any origin loaded in the Antigravity browser could call
+          <code>chrome.runtime.connect()</code> / <code>chrome.runtime.sendMessage()</code>
+          against the extension ID. The trust model for “who may drive SaveScreenRecording”
+          was effectively: whoever rendered a page.
+        </p>
+      </div>
+
+      <pre><code>"externally_connectable": {
+  "matches": [ "&lt;all_urls&gt;" ]
+}</code></pre>
+
+      <p>
+        Once every site is a peer of the extension, the only remaining question is whether any
+        message handler does something unsafe with attacker-controlled fields.
+        One of them did.
+      </p>
+
+      <hr />
+
+      <h2>The attack chain</h2>
+
+      <pre class="mermaid">
+flowchart TD
+    P0[0 · Victim opens attacker page in Antigravity browser] --> P1[1 · Page talks to extension via sendMessage]
+    P1 --> P2[2 · SaveScreenRecording with filename + bytes]
+    P2 --> P3[3 · Extension packs fields into LS RPC]
+    P3 --> P4[4 · Language server writes path = base + L + filename]
+    P4 --> P5[5 · Traversal escapes recordings dir]
+    P5 --> P6[6 · Arbitrary write under user profile]
+    P6 --> P7[7 · Persistence / RCE e.g. Startup folder]
+    style P2 fill:#ff6b6b,color:#000
+    style P4 fill:#ff6b6b,color:#000
+    style P5 fill:#ff6b6b,color:#000
+    style P6 fill:#ff6b6b,color:#000
+    style P7 fill:#ffa657,color:#000
+      </pre>
+
+      <h3>0 — Delivery: any page the agent (or user) opens</h3>
+
+      <p>
+        No extension store phishing. No native installer.
+        The victim — or the agent acting on their behalf — opens an attacker-controlled URL
+        inside the Antigravity browser. That is a normal product action:
+        “browse this docs site,” “open the staging URL,” “check this repro page.”
+      </p>
+
+      <h3>1 — External messaging is wide open</h3>
+
+      <p>
+        With <code>&lt;all_urls&gt;</code>, the page’s DevTools console (and any script on the page)
+        can reach the extension. Handlers observed on the wire included things like:
+      </p>
+
+      <ul>
+        <li><code>SaveScreenRecording</code></li>
+        <li><code>getCurrentTabId</code> / <code>registerTargetID</code></li>
+        <li><code>startScreenRecording</code> / <code>stopScreenRecording</code></li>
+        <li><code>proxyRpcCall</code> / <code>rpcCall</code></li>
+      </ul>
+
+      <p>
+        Screen recording is a feature. Exposing its save path to every website is a privilege boundary.
+      </p>
+
+      <h3>2 — <code>SaveScreenRecording</code> takes content and a path</h3>
+
+      <p>
+        The interesting handler checked for an object shaped like:
+        action <code>SaveScreenRecording</code>, a byte array field, a string <code>filename</code>,
+        and another string path component (obfuscated field <code>L</code> in the minified build).
+        Conceptual gate from the report:
+      </p>
+
+      <pre><code>if (!a || typeof a !== "object"
+    || a.action !== "SaveScreenRecording"
+    || typeof a.za !== "object"
+    || typeof a.filename !== "string"
+    || typeof a.L !== "string") {
+  // reject
+}</code></pre>
+
+      <p>
+        Types were checked. Path safety was not.
+        The bytes in <code>za</code> became file content.
+        <code>filename</code> and <code>L</code> were concatenated into the destination path
+        under the Antigravity recordings / brain directory.
+      </p>
+
+      <h3>3 — Extension → language server RPC</h3>
+
+      <p>
+        The extension did not write the file itself in the page process.
+        It packaged a protobuf-ish request and called the local language server:
+      </p>
+
+      <pre><code>/exa.language_server_pb.LanguageServerService/SaveScreenRecording</code></pre>
+
+      <p>
+        That is the same class of host-side service the IDE trusts for agent work.
+        Error messages from failed opens leaked the resolved path — enough to confirm
+        traversal was landing where the reporter aimed:
+      </p>
+
+      <pre><code>Failed to save video file: open
+C:\Users\STARK-PC\.gemini\antigravity\brain\aaa\screen-recordingss-….webm:
+The system cannot find the path specified.</code></pre>
+
+      <div class="callout danger">
+        <div class="label">The mismatch</div>
+        <p style="margin:0">
+          Feature intent: save a recording under a managed Antigravity directory.<br />
+          Security control: type-check the message fields.<br />
+          Missing control: canonicalize / jail the path; authenticate the caller beyond “any webpage.”<br />
+          Attacker: <code>../</code> sequences in <code>filename</code> / <code>L</code> until the write
+          escapes into <code>C:\Users\&lt;user&gt;\…</code>.
+        </p>
+      </div>
+
+      <h3>4–6 — Traversal → arbitrary write</h3>
+
+      <p>
+        Concatenating untrusted path segments is the oldest write bug in the book.
+        From the intended brain / recordings tree, enough <code>../</code> reaches the user profile.
+        Content is fully attacker-controlled (the “video” bytes never had to be a real WebM).
+      </p>
+
+      <pre class="mermaid">
+sequenceDiagram
+    participant Page as Attacker page
+    participant Ext as Antigravity extension
+    participant LS as Language server
+    participant FS as User filesystem
+
+    Page->>Ext: sendMessage SaveScreenRecording<br/>filename=../poc.txt L=../../../…
+    Ext->>LS: SaveScreenRecording RPC (bytes + path)
+    LS->>FS: open/write resolved path
+    FS-->>LS: ok (or path error leaking absolute path)
+    LS-->>Ext: response
+    Ext-->>Page: callback
+      </pre>
+
+      <h3>7 — From write to RCE</h3>
+
+      <p>
+        Arbitrary write under the user profile is already game over for many threat models.
+        The report’s impact story on Windows is the obvious persistence path:
+        drop a payload where the OS will execute it on logon (e.g. the user Startup folder),
+        then wait for the next reboot / sign-in.
+        No second vulnerability required — only a file write the product already performed
+        on the attacker’s behalf.
+      </p>
+
+      <hr />
+
+      <h2>Proof of concept (file write)</h2>
+
+      <p>
+        Reproduction shape from the report (Windows; Antigravity browser with the extension initialized).
+        Extension ID as observed in the report:
+        <code>eeijfnjmjelapkebgockoeaadonbchdd</code>.
+      </p>
+
+      <pre><code>&lt;script&gt;
+const content = "shirley: hey sudi, I love you ;)";
+const bytes = new TextEncoder().encode(content);
+const EXTENSION_ID = "eeijfnjmjelapkebgockoeaadonbchdd";
+
+function sendRecording() {
+  chrome.runtime.sendMessage(
+    EXTENSION_ID,
+    {
+      action: "SaveScreenRecording",
+      filename: "../poc.txt",
+      za: Array.from(bytes),
+      L: "../../../test",
+      video_data: "aaaaaaaaaaaaaaaaa"
+    },
+    (response) => console.log("Response from Extension:", response)
+  );
+}
+
+sendRecording();
+&lt;/script&gt;</code></pre>
+
+      <p>
+        Steps, condensed:
+      </p>
+
+      <ol>
+        <li>Open Antigravity IDE; prompt it to open a URL so the Antigravity browser launches.</li>
+        <li>Confirm <code>chrome.runtime</code> is available in DevTools on a loaded page (refresh if needed).</li>
+        <li>Open the PoC HTML in that browser.</li>
+        <li>Observe a new file under the user profile (report example:
+          <code>C:\Users\STARK-PC\poc.txt</code> with the chosen content).</li>
+      </ol>
+
+      <div class="callout">
+        <div class="label">Scope note</div>
+        <p style="margin:0">
+          This is not “drive-by on every Chrome user.” It requires the Antigravity browser / extension
+          path — typically after the IDE has been used to open web content.
+          Inside that product surface, origin isolation for extension messaging was effectively absent,
+          so a single malicious page was enough for the write primitive.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>Attack scenario</h2>
+
+      <p>
+        Realistic story:
+      </p>
+
+      <ul>
+        <li>Developer uses Antigravity; agent opens docs, staging, or a “repro” link the attacker controls.</li>
+        <li>Page JS messages the extension; path traversal writes outside the recordings jail.</li>
+        <li>Attacker places a persistence binary or script where Windows will run it later —
+          or overwrites other high-value files the user / tooling will execute.</li>
+        <li>Compromise survives the browsing tab. The agent can leave; the file remains.</li>
+      </ul>
+
+      <p>
+        Same family of failure as the agent HITL bypasses on this blog:
+        a helpful product capability (record screen / write settings / run shell)
+        without a boundary that matches how the OS actually resolves trust.
+      </p>
+
+      <hr />
+
+      <h2>Root cause</h2>
+
+      <p>
+        Three failures stacked:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Over-broad <code>externally_connectable</code>.</strong>
+          <code>&lt;all_urls&gt;</code> made every site a privileged peer of the extension.
+          Feature RPC should have been limited to known Antigravity origins — or better,
+          not exposed to web pages at all.
+        </li>
+        <li>
+          <strong>Untrusted path concatenation.</strong>
+          <code>filename</code> and related segments were not confined to a basename /
+          allowlisted directory after <code>realpath</code>-style resolution.
+        </li>
+        <li>
+          <strong>Content-controlled write into a host service.</strong>
+          The language server honored the path and bytes from a message that any page could forge.
+        </li>
+      </ol>
+
+      <div class="insight">
+        <div class="label">Agent products multiply deputies</div>
+        <p>
+          Antigravity already has an agent that can write files.
+          The browser extension was a second deputy with a different entrypoint and weaker caller checks.
+          Defenders who only audit the chat tool policy miss the extension ↔ language-server pipe.
+        </p>
+      </div>
+
+      <hr />
+
+      <h2>What a correct fix looks like</h2>
+
+      <ul>
+        <li>
+          <strong>Narrow <code>externally_connectable</code></strong> to specific Antigravity /
+          first-party origins — or remove external messaging for save APIs entirely.
+        </li>
+        <li>
+          <strong>Never take relative paths from the page.</strong>
+          Accept only a recording ID; the host chooses the absolute path under a fixed jail.
+        </li>
+        <li>
+          <strong>Canonicalize and enforce a directory prefix</strong> on the language-server side
+          even if the extension is compromised or confused.
+        </li>
+        <li>
+          <strong>Authenticate / authorize sensitive RPCs</strong> with a secret or native messaging
+          channel that web content cannot forge.
+        </li>
+        <li>
+          <strong>Treat screen-recording save as a privileged operation</strong> —
+          same severity class as “write arbitrary bytes to disk,” because that is what it was.
+        </li>
+      </ul>
+
+      <p>
+        Google accepted and fixed the issue; the report marks reward decided at $10,000.
+        Anyone still on builds from before the Dec 2025 fix window should update.
+      </p>
+
+      <hr />
+
+      <h2>How this fits the Antigravity series</h2>
+
+      <p>
+        On this site the Antigravity / Gemini agent stories were about
+        <em>policy that does not match the filesystem</em>
+        (case-blind HITL on <code>settings.json</code>) and
+        <em>shell policy that does not see <code>eval</code></em>.
+        This browser bug is the cousin:
+        <em>extension policy that does not match who can call you</em>,
+        plus <em>path policy that does not jail writes</em>.
+      </p>
+
+      <p>
+        Three deputies, one host:
+      </p>
+
+      <ul>
+        <li>Agent tool loop → disk / settings</li>
+        <li>CLI shell tool → OS commands</li>
+        <li>Browser extension → language-server file write</li>
+      </ul>
+
+      <p>
+        Secure the chat box and leave <code>&lt;all_urls&gt;</code> on a save-to-disk RPC,
+        and the host is still for sale.
+      </p>
+
+      <hr />
+
+      <h2>Takeaways</h2>
+
+      <p>
+        <strong><code>externally_connectable: &lt;all_urls&gt;</code> is a loaded gun</strong>
+        next to any handler that touches the filesystem or a local privileged service.
+      </p>
+
+      <p>
+        <strong>Type checks are not path checks.</strong>
+        <code>typeof filename === "string"</code> does not mean the string is safe to open.
+      </p>
+
+      <p>
+        <strong>Arbitrary write is RCE with patience</strong> on desktop OSes —
+        Startup folders, shell extensions, editor config, and helper binaries all turn bytes into execution.
+      </p>
+
+      <p>
+        <strong>Agent IDEs need a full trust map</strong> of every bridge:
+        extension, language server, CLI, MCP — not only the model’s tool allowlist.
+      </p>
+
+      <p>
+        Credit again to Sudhanshu Rajbhar for the Google VRP report that made this chain explicit.
+        On to the next boundary.
+      </p>
+
+      <div class="tags">
+        <span>antigravity</span>
+        <span>antigravity-browser</span>
+        <span>chrome-extension</span>
+        <span>arbitrary-file-write</span>
+        <span>path-traversal</span>
+        <span>rce</span>
+        <span>google-vrp</span>
+        <span>externally-connectable</span>
+        <span>agent-security</span>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>© 2026 Abhishek Kandi</span>
+      <span>Responsible disclosure</span>
+    </div>
+  </footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        darkMode: true,
+        background: "#0d1117",
+        primaryColor: "#161b22",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#58a6ff",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
+        fontFamily: "IBM Plex Sans, sans-serif",
+        fontSize: "15px",
+      },
+    });
+    await mermaid.run({ querySelector: ".mermaid" });
+  </script>
+</body>
+</html>
